@@ -125,6 +125,12 @@ input[type="number"] {
   border: 1px solid #1f5c45;
 }
 
+.badge--pending {
+  background: #2a2414;
+  color: #ffd48a;
+  border: 1px solid #5c4a1f;
+}
+
 .btn {
   font: inherit;
   padding: 0.55rem 0.85rem;

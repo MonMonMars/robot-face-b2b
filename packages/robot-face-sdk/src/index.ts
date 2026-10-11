@@ -57,7 +57,28 @@ export {
   ExpressionStreamClient,
   type ExpressionStreamClientOptions,
   type StreamClientListener,
+  type StreamWebSocketLike,
 } from "./stream/ws-client.js";
+export {
+  ResilientStreamClient,
+  type ResilientStreamClientOptions,
+  type StreamConnectionState,
+} from "./stream/resilient-stream-client.js";
+export {
+  readStreamServerGuardConfig,
+  StreamConnectionGuard,
+  clientIp,
+  type StreamServerGuardConfig,
+} from "./stream/stream-server-guards.js";
+export {
+  SESSION_RECORDING_VERSION,
+  SessionRecorder,
+  SessionReplayer,
+  parseSessionRecording,
+  type SessionRecording,
+  type SessionRecordingEvent,
+  type SessionReplayHandlers,
+} from "./session/session-recording.js";
 export {
   validateStreamToken,
   appendTokenQuery,

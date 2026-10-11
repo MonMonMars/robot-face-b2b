@@ -10,9 +10,12 @@ import {
   createSinglePrimitiveBlend,
   EXPRESSION_PRIMITIVES,
   isExpressionPrimitive,
-  serializeWireMessage,
+  ResilientStreamClient,
   type ExpressionPrimitive,
+  type StreamWebSocketLike,
   type PlaybackProgressSnapshot,
+  type StreamConnectionState,
+  type WireClientMessage,
   type WireServerMessage,
 } from "@robot-face/sdk";
 
@@ -25,6 +28,23 @@ function parseArgs(argv: string[]): { streamUrl?: string; streamToken?: string }
     if (argv[i] === "--token" && argv[i + 1]) out.streamToken = argv[++i];
   }
   return out;
+}
+
+function formatConnState(state: StreamConnectionState): string {
+  switch (state) {
+    case "connected":
+      return "connected";
+    case "connecting":
+      return "connecting…";
+    case "reconnecting":
+      return "reconnecting (backoff)…";
+    case "disconnected":
+      return "disconnected";
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
 }
 
 async function runLocal(): Promise<void> {
@@ -75,22 +95,27 @@ async function runLocal(): Promise<void> {
 async function runStream(streamUrl: string, streamToken?: string): Promise<void> {
   const url = appendTokenQuery(streamUrl, streamToken);
   console.log(`Robot Face B2B — CLI over WebSocket stream`);
-  console.log(`Server: ${url}`);
+  console.log(`Server: ${streamUrl}`);
+  console.log(`Auto-reconnect: on (exponential backoff)`);
   console.log(
-    `Commands: <expression> [intensity] | pause | resume | seek <ms> | stop | quit\n`,
+    `Commands: <expression> [intensity] | pause | resume | seek <ms> | stop | status | quit\n`,
   );
 
-  const ws = new WebSocket(url);
   let lastProgress: PlaybackProgressSnapshot | undefined;
+  let connState: StreamConnectionState = "disconnected";
 
-  await new Promise<void>((resolve, reject) => {
-    ws.once("open", () => resolve());
-    ws.once("error", reject);
-  });
-
-  ws.on("message", (data) => {
-    try {
-      const msg = JSON.parse(data.toString()) as WireServerMessage;
+  const streamClient = new ResilientStreamClient({
+    url,
+    autoReconnect: true,
+    initialBackoffMs: 1000,
+    maxBackoffMs: 30_000,
+    webSocketFactory: (targetUrl): StreamWebSocketLike =>
+      new WebSocket(targetUrl) as unknown as StreamWebSocketLike,
+    onConnectionStateChange: (state) => {
+      connState = state;
+      console.log(`[stream] ${formatConnState(state)}`);
+    },
+    onMessage: (msg: WireServerMessage) => {
       if (msg.type === "hello") {
         console.log(
           `Connected to ${msg.platformLabel} (${msg.adapterId}) auth=${msg.authRequired ? "required" : "off"}`,
@@ -108,10 +133,36 @@ async function runStream(streamUrl: string, streamToken?: string): Promise<void>
         );
       }
       if (msg.type === "error") console.error(`Server error: ${msg.message}`);
-    } catch {
-      // ignore
-    }
+    },
   });
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const check = setInterval(() => {
+      if (streamClient.isOpen() && !settled) {
+        settled = true;
+        clearInterval(check);
+        resolve();
+      }
+    }, 100);
+    void streamClient.connect().catch(() => undefined);
+  });
+
+  try {
+    await runStreamInteractive(streamClient, () => connState, () => lastProgress);
+  } finally {
+    streamClient.close();
+  }
+}
+
+async function runStreamInteractive(
+  streamClient: ResilientStreamClient,
+  getConnState: () => StreamConnectionState,
+  getLastProgress: () => PlaybackProgressSnapshot | undefined,
+): Promise<void> {
+  const send = (command: WireClientMessage): void => {
+    streamClient.send(command);
+  };
 
   const rl = readline.createInterface({ input, output });
   try {
@@ -120,22 +171,28 @@ async function runStream(streamUrl: string, streamToken?: string): Promise<void>
       if (!line) continue;
       if (line === "quit" || line === "exit") break;
 
+      if (line === "status") {
+        console.log(
+          `Connection: ${formatConnState(getConnState())} open=${streamClient.isOpen()}`,
+        );
+        continue;
+      }
       if (line === "pause") {
-        ws.send(serializeWireMessage({ type: "pausePlayback" }));
+        send({ type: "pausePlayback" });
         continue;
       }
       if (line === "resume") {
-        ws.send(serializeWireMessage({ type: "resumePlayback" }));
+        send({ type: "resumePlayback" });
         continue;
       }
       if (line === "stop") {
-        ws.send(serializeWireMessage({ type: "stopPlayback" }));
+        send({ type: "stopPlayback" });
         continue;
       }
       if (line.startsWith("seek ")) {
         const ms = Number.parseInt(line.slice(5).trim(), 10);
         if (!Number.isNaN(ms)) {
-          ws.send(serializeWireMessage({ type: "seekPlayback", localTimeMs: ms }));
+          send({ type: "seekPlayback", localTimeMs: ms });
         }
         continue;
       }
@@ -158,16 +215,14 @@ async function runStream(streamUrl: string, streamToken?: string): Promise<void>
           ? createNeutralBlend(intensity)
           : createSinglePrimitiveBlend(primitive, intensity);
 
-      ws.send(
-        serializeWireMessage({
-          type: "setExpression",
-          frame: createExpressionFrame(blend, { durationMs: 400 }),
-        }),
-      );
+      send({
+        type: "setExpression",
+        frame: createExpressionFrame(blend, { durationMs: 400 }),
+      });
     }
   } finally {
     rl.close();
-    ws.close();
+    const lastProgress = getLastProgress();
     if (lastProgress) {
       console.log(
         `Last playback: ${lastProgress.state} @ ${lastProgress.localTimeMs}ms`,

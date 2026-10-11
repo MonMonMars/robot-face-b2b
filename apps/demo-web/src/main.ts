@@ -6,11 +6,15 @@ import {
   EXPRESSION_PRIMITIVES,
   getPresetById,
   normalizeBlend,
+  parseSessionRecording,
   sequenceDurationMs,
+  SessionRecorder,
+  SessionReplayer,
   sortKeyframes,
   type BlendWeights,
   type ExpressionPrimitive,
   type RobotAdapterId,
+  type StreamConnectionState,
 } from "@robot-face/sdk";
 import {
   adapterConnectOptions,
@@ -54,8 +58,14 @@ const playTimelineBtn = document.querySelector<HTMLButtonElement>("#play-timelin
 const exportSeqBtn = document.querySelector<HTMLButtonElement>("#export-seq")!;
 const importSeqInput = document.querySelector<HTMLInputElement>("#import-seq")!;
 const keyframeListEl = document.querySelector<HTMLElement>("#keyframe-list")!;
+const recordSessionBtn = document.querySelector<HTMLButtonElement>("#record-session")!;
+const stopRecordSessionBtn = document.querySelector<HTMLButtonElement>("#stop-record-session")!;
+const replaySessionInput = document.querySelector<HTMLInputElement>("#replay-session")!;
+const recordStatusEl = document.querySelector<HTMLElement>("#record-status")!;
 
 let session: ExpressionSession | null = null;
+const sessionRecorder = new SessionRecorder();
+const sessionReplayer = new SessionReplayer();
 let timelineRaf = 0;
 const sliderState: BlendWeights = createNeutralBlend(1).weights;
 
@@ -132,9 +142,33 @@ function syncSliders(weights: BlendWeights): void {
   }
 }
 
+function connectionBadgeLabel(
+  connected: boolean,
+  platform: string,
+  streamState?: StreamConnectionState,
+): string {
+  if (!connected && streamState && streamState !== "disconnected") {
+    if (streamState === "connecting") return "Connecting to stream…";
+    if (streamState === "reconnecting") return "Reconnecting to stream…";
+  }
+  return connected ? platform : "Disconnected";
+}
+
+function setConnectionBadge(
+  connected: boolean,
+  label: string,
+  streamState?: StreamConnectionState,
+): void {
+  connBadge.textContent = connectionBadgeLabel(connected, label, streamState);
+  if (!connected && streamState && streamState !== "disconnected") {
+    connBadge.className = "badge badge--pending";
+  } else {
+    connBadge.className = connected ? "badge badge--on" : "badge badge--off";
+  }
+}
+
 function setUiConnected(connected: boolean, label: string): void {
-  connBadge.textContent = label;
-  connBadge.className = connected ? "badge badge--on" : "badge badge--off";
+  setConnectionBadge(connected, label);
   connectBtn.textContent = connected ? "Disconnect" : "Connect";
   const en = connected;
   applyPresetBtn.disabled = !en;
@@ -145,6 +179,8 @@ function setUiConnected(connected: boolean, label: string): void {
   resumePlaybackBtn.disabled = !en;
   addKeyframeBtn.disabled = !en;
   playTimelineBtn.disabled = !en;
+  recordSessionBtn.disabled = !en;
+  stopRecordSessionBtn.disabled = !en || !sessionRecorder.isRecording();
 }
 
 function createSession(mode: ConnectionMode): ExpressionSession {
@@ -231,6 +267,10 @@ connectBtn.addEventListener("click", async () => {
   if (session?.isConnected()) {
     session.stopPlayback();
     cancelAnimationFrame(timelineRaf);
+    if (sessionRecorder.isRecording()) {
+      sessionRecorder.stop();
+      recordStatusEl.textContent = "Recording stopped (disconnect)";
+    }
     await session.disconnect();
     session = null;
     setUiConnected(false, "Disconnected");
@@ -239,13 +279,34 @@ connectBtn.addEventListener("click", async () => {
   }
 
   session = createSession(connModeSelect.value as ConnectionMode);
-  await session.connect();
+  connectBtn.disabled = true;
+  if (session.mode === "stream") {
+    setConnectionBadge(false, "Stream", "connecting");
+    session.onConnectionState((state) => {
+      const label = `Stream · ${session?.platformLabel() ?? "…"}`;
+      setConnectionBadge(session?.isConnected() ?? false, label, state);
+      if (state === "reconnecting") appendLog("Stream reconnecting (backoff)…");
+      if (state === "connected") appendLog("Stream connected");
+    });
+  }
+  try {
+    await session.connect();
+  } catch (err) {
+    appendLog(`Connect failed: ${err instanceof Error ? err.message : String(err)}`);
+    session = null;
+    setUiConnected(false, "Disconnected");
+    connectBtn.disabled = false;
+    return;
+  }
+  connectBtn.disabled = false;
+
   const label =
     session.mode === "stream"
       ? `Stream · ${session.platformLabel()}`
       : `Local · ${session.platformLabel()}`;
   setUiConnected(true, label);
   appendLog(`Connected (${session.mode})`);
+  session.attachRecorder(sessionRecorder);
 
   session.onFrame((frame) =>
     updateFacePreview(frame.blend.weights, frame.blend.intensity),
@@ -257,6 +318,58 @@ connectBtn.addEventListener("click", async () => {
   });
 
   startProgressLoop();
+});
+
+recordSessionBtn.addEventListener("click", () => {
+  if (!session?.isConnected()) return;
+  sessionRecorder.start(`studio-${new Date().toISOString().slice(0, 19)}`);
+  recordStatusEl.textContent = "Recording…";
+  stopRecordSessionBtn.disabled = false;
+  appendLog("Session recording started");
+});
+
+stopRecordSessionBtn.addEventListener("click", () => {
+  if (!sessionRecorder.isRecording()) return;
+  const json = sessionRecorder.exportJson();
+  recordStatusEl.textContent = "Not recording";
+  stopRecordSessionBtn.disabled = true;
+  const blob = new Blob([json], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `robot-face-session-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  appendLog("Session recording exported");
+});
+
+replaySessionInput.addEventListener("change", () => {
+  const file = replaySessionInput.files?.[0];
+  if (!file) return;
+  void file.text().then(async (text) => {
+    try {
+      const recording = parseSessionRecording(text);
+      sessionReplayer.cancel();
+      appendLog(`Replaying session “${recording.label}” (${recording.events.length} events)`);
+      await sessionReplayer.play(recording, {
+        onFrame: (frame) => {
+          updateFacePreview(frame.blend.weights, frame.blend.intensity);
+          void session?.setExpression(frame);
+        },
+        onCommand: (command) => {
+          if (command.type === "playSequence") {
+            void session?.playSequence(command.sequence, command.loop);
+          } else if (command.type === "pausePlayback") session?.pausePlayback();
+          else if (command.type === "resumePlayback") session?.resumePlayback();
+          else if (command.type === "seekPlayback") session?.seekPlayback(command.localTimeMs);
+          else if (command.type === "stopPlayback") session?.stopPlayback();
+        },
+        onComplete: () => appendLog("Session replay finished"),
+      });
+    } catch (err) {
+      appendLog(`Replay failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+  replaySessionInput.value = "";
 });
 
 connModeSelect.addEventListener("change", () => {

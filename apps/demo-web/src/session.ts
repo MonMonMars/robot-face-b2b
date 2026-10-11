@@ -4,13 +4,16 @@ import {
   createExpressionFrame,
   createRobotAdapter,
   ExpressionPlayback,
-  ExpressionStreamClient,
   parseAdapterConfig,
+  ResilientStreamClient,
   type ExpressionFrame,
   type ExpressionSequence,
   type PlaybackProgressSnapshot,
   type RobotAdapter,
   type RobotAdapterId,
+  type SessionRecorder,
+  type StreamConnectionState,
+  type WireClientMessage,
   type WireServerMessage,
 } from "@robot-face/sdk";
 
@@ -32,6 +35,9 @@ export interface ExpressionSession {
   getRemoteProgress(): PlaybackProgressSnapshot | null;
   onServerMessage(cb: (msg: WireServerMessage) => void): () => void;
   onFrame(cb: (frame: ExpressionFrame) => void): () => void;
+  getConnectionState(): StreamConnectionState;
+  onConnectionState(cb: (state: StreamConnectionState) => void): () => void;
+  attachRecorder(recorder: SessionRecorder | null): void;
 }
 
 export class LocalExpressionSession implements ExpressionSession {
@@ -67,11 +73,13 @@ export class LocalExpressionSession implements ExpressionSession {
 
   async setExpression(frame: ExpressionFrame): Promise<void> {
     if (!this.robot) throw new Error("Not connected");
+    this.recordCommand({ type: "setExpression", frame });
     await this.robot.setExpression(frame);
   }
 
   async playSequence(sequence: ExpressionSequence, loop?: boolean): Promise<void> {
     if (!this.robot) throw new Error("Not connected");
+    this.recordCommand({ type: "playSequence", sequence, loop });
     this.playback.stop();
     await this.playback.playSequence(sequence, this.robot, {
       loop,
@@ -82,20 +90,24 @@ export class LocalExpressionSession implements ExpressionSession {
   }
 
   pausePlayback(): void {
+    this.recordCommand({ type: "pausePlayback" });
     this.playback.pause();
     this.remoteProgress = this.playback.getSnapshot();
   }
 
   resumePlayback(): void {
+    this.recordCommand({ type: "resumePlayback" });
     this.playback.resume();
   }
 
   seekPlayback(localTimeMs: number): void {
+    this.recordCommand({ type: "seekPlayback", localTimeMs });
     this.playback.seek(localTimeMs);
     this.remoteProgress = this.playback.getSnapshot();
   }
 
   stopPlayback(): void {
+    this.recordCommand({ type: "stopPlayback" });
     this.playback.stop();
     this.remoteProgress = this.playback.getSnapshot();
   }
@@ -114,16 +126,40 @@ export class LocalExpressionSession implements ExpressionSession {
 
   onFrame(cb: (frame: ExpressionFrame) => void): () => void {
     if (!this.robot) return () => undefined;
-    return this.robot.expressionStream.subscribe(cb);
+    return this.robot.expressionStream.subscribe((frame) => {
+      this.recorder?.recordFrame(frame);
+      cb(frame);
+    });
+  }
+
+  getConnectionState(): StreamConnectionState {
+    return this.isConnected() ? "connected" : "disconnected";
+  }
+
+  onConnectionState(): () => void {
+    return () => undefined;
+  }
+
+  private recorder: SessionRecorder | null = null;
+
+  attachRecorder(recorder: SessionRecorder | null): void {
+    this.recorder = recorder;
+  }
+
+  private recordCommand(command: WireClientMessage): void {
+    this.recorder?.recordCommand(command);
   }
 }
 
 export class StreamExpressionSession implements ExpressionSession {
   readonly mode = "stream" as const;
-  private client: ExpressionStreamClient | null = null;
+  private client: ResilientStreamClient | null = null;
   private readonly messageHandlers = new Set<(msg: WireServerMessage) => void>();
+  private readonly stateHandlers = new Set<(state: StreamConnectionState) => void>();
   private platform = "Stream server";
   private remoteProgress: PlaybackProgressSnapshot | null = null;
+  private connectionState: StreamConnectionState = "disconnected";
+  private recorder: SessionRecorder | null = null;
 
   constructor(
     private readonly streamUrl: string,
@@ -132,54 +168,97 @@ export class StreamExpressionSession implements ExpressionSession {
 
   async connect(): Promise<void> {
     const url = appendTokenQuery(this.streamUrl, this.streamToken);
-    this.client = new ExpressionStreamClient({
+    this.client = new ResilientStreamClient({
       url,
-      onMessage: (msg) => {
-        if (msg.type === "playbackProgress") {
-          this.remoteProgress = msg.progress;
-        }
-        for (const h of this.messageHandlers) h(msg);
+      autoReconnect: true,
+      initialBackoffMs: 800,
+      maxBackoffMs: 15_000,
+      onConnectionStateChange: (state) => {
+        this.connectionState = state;
+        for (const h of this.stateHandlers) h(state);
       },
+      onMessage: (msg) => this.dispatchServerMessage(msg),
     });
-    await this.client.connect();
+
+    await new Promise<void>((resolve) => {
+      const unsub = this.onConnectionState((state) => {
+        if (state === "connected") {
+          unsub();
+          resolve();
+        }
+      });
+      void this.client!.connect().catch(() => {
+        // First attempt may fail; auto-reconnect continues until connected.
+      });
+    });
+  }
+
+  private dispatchServerMessage(msg: WireServerMessage): void {
+    if (msg.type === "playbackProgress") {
+      this.remoteProgress = msg.progress;
+    }
+    if (msg.type === "frame") {
+      this.recorder?.recordFrame(msg.frame);
+    }
+    for (const h of this.messageHandlers) h(msg);
   }
 
   async disconnect(): Promise<void> {
     this.client?.close();
     this.client = null;
     this.remoteProgress = null;
+    this.connectionState = "disconnected";
   }
 
   isConnected(): boolean {
     return this.client?.isOpen() ?? false;
   }
 
+  getConnectionState(): StreamConnectionState {
+    return this.connectionState;
+  }
+
+  onConnectionState(cb: (state: StreamConnectionState) => void): () => void {
+    this.stateHandlers.add(cb);
+    cb(this.connectionState);
+    return () => this.stateHandlers.delete(cb);
+  }
+
+  attachRecorder(recorder: SessionRecorder | null): void {
+    this.recorder = recorder;
+  }
+
   platformLabel(): string {
     return this.platform;
   }
 
+  private send(command: WireClientMessage): void {
+    this.recorder?.recordCommand(command);
+    this.client?.send(command);
+  }
+
   async setExpression(frame: ExpressionFrame): Promise<void> {
-    this.client?.send({ type: "setExpression", frame });
+    this.send({ type: "setExpression", frame });
   }
 
   async playSequence(sequence: ExpressionSequence, loop?: boolean): Promise<void> {
-    this.client?.send({ type: "playSequence", sequence, loop });
+    this.send({ type: "playSequence", sequence, loop });
   }
 
   pausePlayback(): void {
-    this.client?.send({ type: "pausePlayback" });
+    this.send({ type: "pausePlayback" });
   }
 
   resumePlayback(): void {
-    this.client?.send({ type: "resumePlayback" });
+    this.send({ type: "resumePlayback" });
   }
 
   seekPlayback(localTimeMs: number): void {
-    this.client?.send({ type: "seekPlayback", localTimeMs });
+    this.send({ type: "seekPlayback", localTimeMs });
   }
 
   stopPlayback(): void {
-    this.client?.send({ type: "stopPlayback" });
+    this.send({ type: "stopPlayback" });
   }
 
   getPlayback(): ExpressionPlayback | null {

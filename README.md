@@ -1,5 +1,18 @@
 # Robot Face B2B
 
+**Sales & demo path:** run the full stack in one command, open the studio, and drive a live expression stream — no robot hardware required.
+
+```bash
+npm install
+npm run stack:up
+```
+
+Open **http://localhost:5173** → **Connect** (Stream server mode, default URL) → pick a preset → **Play sequence**. The canvas face preview follows blend weights from the mock adapter over WebSocket.
+
+Stop the stack with `npm run stack:down`.
+
+---
+
 B2B software for **robot facial expressions** — a typed TypeScript SDK and control studio for humanoid platforms (Unitree-class, Tesla Optimus–class, and custom OEM bridges). Drive normalized expression primitives, keyframed sequences, and realtime streams from your app, CLI, or browser demo.
 
 ## Quick start
@@ -15,11 +28,11 @@ npm run test:integration
 
 | Command | Description |
 |---------|-------------|
+| `npm run stack:up` | **Recommended demo:** Docker Compose — mock stream + studio |
 | `npm run stream:server` | WebSocket expression stream + HTTP health (default `:8765`) |
 | `npm run demo:web` | Control studio at http://localhost:5173 |
 | `npm run demo:cli` | In-process mock CLI |
-| `npm run demo:cli -- --stream ws://127.0.0.1:8765/stream` | CLI over live stream |
-| `npm run stack:up` | **One command:** Docker Compose — mock stream + studio |
+| `npm run demo:cli -- --stream ws://127.0.0.1:8765/stream` | CLI over live stream (auto-reconnect) |
 
 ### Docker Compose (one-command demo stack)
 
@@ -81,9 +94,40 @@ Server-side `ExpressionPlayback` broadcasts **`playbackProgress`** (state, `loca
 | `seekPlayback` | `{ localTimeMs }` scrub |
 | `stopPlayback` | Stop |
 
-Studio and CLI reflect progress; CLI stream mode accepts `pause`, `resume`, `seek <ms>`, `stop`.
+Studio and CLI reflect progress; CLI stream mode accepts `pause`, `resume`, `seek <ms>`, `stop`, `status`.
 
 Wire schema: `packages/robot-face-sdk/src/stream/wire-protocol.ts`.
+
+### Stream client resilience
+
+`ResilientStreamClient` (SDK) and the control studio / CLI stream mode **auto-reconnect** with exponential backoff when the WebSocket drops. Connection states: `connecting`, `connected`, `reconnecting`, `disconnected`. The studio badge shows reconnect status; the CLI prints `[stream] reconnecting (backoff)…` and queues outbound frames until the socket is open again.
+
+### Session recording & replay
+
+Record demos in the studio (**Session record / replay** → **Start recording** → **Stop & export**) or from code:
+
+```typescript
+import { SessionRecorder, SessionReplayer, parseSessionRecording } from "@robot-face/sdk";
+
+const recorder = new SessionRecorder();
+recorder.start("sales-demo");
+recorder.recordFrame(frame);
+recorder.recordCommand({ type: "playSequence", sequence, loop: true });
+const json = recorder.exportJson();
+```
+
+JSON format (`version: 1`): ordered `events[]` with `kind: "frame" | "command"`, `atMs`, and payload. Import in the studio to **replay** on the canvas and (when connected) re-send commands to the stream.
+
+### Stream server guards
+
+Protect the mock/production stream hub with env-configurable limits (defaults in parentheses):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `STREAM_MAX_CLIENTS` | `32` | Max concurrent WebSocket clients (`0` = unlimited) |
+| `STREAM_MIN_MESSAGE_MS` | `20` | Min interval between inbound messages per client (`0` = off) |
+
+Over-capacity upgrades receive **503**; fast senders get an `error` wire message. Health JSON includes `maxClients`, `minMessageIntervalMs`, and `activeClients`.
 
 ### Unitree OEM bridge (feature flag)
 

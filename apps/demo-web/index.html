@@ -109,6 +109,20 @@
           <div id="keyframe-list" class="keyframe-list"></div>
         </section>
 
+        <section class="panel">
+          <h2>Session record / replay</h2>
+          <p class="hint">Capture expression frames and playback commands as JSON for demos and QA.</p>
+          <div class="row">
+            <button id="record-session" type="button" class="btn" disabled>Start recording</button>
+            <button id="stop-record-session" type="button" class="btn" disabled>Stop &amp; export</button>
+            <label class="btn btn--file">
+              Replay JSON
+              <input id="replay-session" type="file" accept="application/json,.json" hidden />
+            </label>
+          </div>
+          <p id="record-status" class="hint">Not recording</p>
+        </section>
+
         <section class="panel log-panel">
           <h2>Event log</h2>
           <pre id="log"></pre>

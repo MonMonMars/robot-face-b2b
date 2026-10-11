@@ -8,9 +8,11 @@ export interface ExpressionStreamClientOptions {
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (err: Error) => void;
+  /** Node.js: supply a WebSocket from `ws` or similar instead of globalThis.WebSocket */
+  webSocketFactory?: (url: string) => StreamWebSocketLike;
 }
 
-interface WsLike {
+export interface StreamWebSocketLike {
   readyState: number;
   send(data: string): void;
   close(): void;
@@ -25,7 +27,7 @@ const OPEN = 1;
  * WebSocket client for the expression stream (browser; pass a custom socket in Node).
  */
 export class ExpressionStreamClient {
-  private ws: WsLike | null = null;
+  private ws: StreamWebSocketLike | null = null;
   private readonly listeners = new Set<StreamClientListener>();
 
   constructor(private readonly options: ExpressionStreamClientOptions) {
@@ -35,7 +37,7 @@ export class ExpressionStreamClient {
   }
 
   /** Attach an already-constructed WebSocket (e.g. Node `ws` package). */
-  attachWebSocket(ws: WsLike): void {
+  attachWebSocket(ws: StreamWebSocketLike): void {
     this.ws = ws;
     const onMessage = (raw: string): void => {
       try {
@@ -69,13 +71,24 @@ export class ExpressionStreamClient {
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.options.webSocketFactory) {
+        const ws = this.options.webSocketFactory(this.options.url);
+        this.attachWebSocket(ws);
+        if (typeof ws.on === "function") {
+          ws.on("open", () => resolve());
+          ws.on("error", () => reject(new Error("WebSocket connection failed")));
+        } else {
+          reject(new Error("webSocketFactory must return a socket with .on()"));
+        }
+        return;
+      }
       const WsImpl = globalThis.WebSocket;
       if (!WsImpl) {
         reject(new Error("WebSocket not available — use attachWebSocket() in Node"));
         return;
       }
       const ws = new WsImpl(this.options.url);
-      this.attachWebSocket(ws as unknown as WsLike);
+      this.attachWebSocket(ws as unknown as StreamWebSocketLike);
       ws.addEventListener("open", () => resolve());
       ws.addEventListener("error", () => {
         reject(new Error("WebSocket connection failed"));

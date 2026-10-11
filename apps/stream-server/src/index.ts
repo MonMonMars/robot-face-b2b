@@ -6,6 +6,8 @@ import {
   createRobotAdapter,
   ExpressionStreamHub,
   parseAdapterConfig,
+  readStreamServerGuardConfig,
+  StreamConnectionGuard,
   validateStreamToken,
   type RobotAdapterId,
 } from "@robot-face/sdk";
@@ -83,6 +85,9 @@ function adapterConnectOptions(id: RobotAdapterId) {
 }
 
 async function main(): Promise<void> {
+  const guardConfig = readStreamServerGuardConfig();
+  const connectionGuard = new StreamConnectionGuard(guardConfig);
+
   const adapter = createRobotAdapter(ADAPTER_ID);
   const hub = new ExpressionStreamHub(adapter, {
     authRequired: Boolean(STREAM_TOKEN),
@@ -101,6 +106,9 @@ async function main(): Promise<void> {
         authRequired: Boolean(STREAM_TOKEN),
         unitreeBridge: process.env.UNITREE_BRIDGE === "1",
         humanoidBridge: process.env.HUMANOID_BRIDGE === "1",
+        maxClients: guardConfig.maxClients,
+        minMessageIntervalMs: guardConfig.minMessageIntervalMs,
+        activeClients: connectionGuard.getActiveClients(),
       }),
     );
   });
@@ -117,12 +125,20 @@ async function main(): Promise<void> {
       socket.destroy();
       return;
     }
+    if (!connectionGuard.canAcceptConnection()) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
   });
 
   wss.on("connection", (socket: WebSocket) => {
+    connectionGuard.registerClient();
+    let lastInboundAt = 0;
+
     const unsub = hub.subscribe((message) => {
       if (socket.readyState === socket.OPEN) {
         socket.send(hub.serialize(message));
@@ -146,11 +162,22 @@ async function main(): Promise<void> {
     }
 
     socket.on("message", (data) => {
+      if (!connectionGuard.checkMessageRate(lastInboundAt)) {
+        socket.send(
+          hub.serialize({
+            type: "error",
+            message: "Rate limit: messages too fast (see STREAM_MIN_MESSAGE_MS)",
+          }),
+        );
+        return;
+      }
+      lastInboundAt = Date.now();
       void hub.handleRawMessage(data.toString());
     });
 
     socket.on("close", () => {
       unsub();
+      connectionGuard.unregisterClient();
     });
   });
 
