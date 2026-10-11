@@ -15,8 +15,33 @@ npm run test:integration
 
 | Command | Description |
 |---------|-------------|
-| `npm run demo:cli` | Interactive mock robot CLI |
+| `npm run stream:server` | WebSocket expression stream + HTTP health (default `:8765`) |
 | `npm run demo:web` | Control studio at http://localhost:5173 |
+| `npm run demo:cli` | In-process mock CLI |
+| `npm run demo:cli -- --stream ws://127.0.0.1:8765/stream` | CLI over live stream |
+
+### Stream server + studio (recommended)
+
+Use two terminals so the web UI and CLI share one adapter over WebSocket:
+
+```bash
+# Terminal 1 — robot adapter + WS hub (mock by default)
+ADAPTER=mock npm run stream:server
+# optional: ADAPTER=unitree UNITREE_ADDRESS=192.168.x.x
+
+# Terminal 2 — control studio (Connection → Stream server)
+npm run demo:web
+# open http://localhost:5173 — default stream URL ws://127.0.0.1:8765/stream
+```
+
+```bash
+# Terminal 3 (optional) — CLI on the same stream
+npm run demo:cli -- --stream ws://127.0.0.1:8765/stream
+```
+
+HTTP health: `curl http://127.0.0.1:8765/` → JSON status. WebSocket path: `/stream`.
+
+Wire messages (`setExpression`, `playSequence`, `stopPlayback`) are JSON; see `packages/robot-face-sdk/src/stream/wire-protocol.ts`.
 
 ## Repository layout
 
@@ -25,7 +50,8 @@ npm run test:integration
 | `packages/robot-face-sdk` | Domain model, playback engine, adapters, configs |
 | `packages/robot-face-sdk/config/*.example.json` | Sample Unitree / humanoid bridge configs |
 | `apps/demo-cli` | Terminal demo |
-| `apps/demo-web` | Realtime control studio (presets, timeline, blend sliders) |
+| `apps/stream-server` | WebSocket server bridging clients → `ExpressionStreamHub` → adapter |
+| `apps/demo-web` | Control studio (stream or local, timeline editor, import/export JSON) |
 
 ## Architecture
 
@@ -37,7 +63,11 @@ flowchart TB
     YOUR[Your B2B app]
   end
 
+  SS[stream-server WS]
+
   subgraph sdk [@robot-face/sdk]
+    HUB[ExpressionStreamHub]
+    WIRE[Wire protocol]
     PRE[Presets pack]
     SEQ[Keyframes and sequences]
     PLAY[ExpressionPlayback]
@@ -52,10 +82,14 @@ flowchart TB
     HU[Humanoid generic — dry-run stub]
   end
 
-  WEB --> REG
-  CLI --> REG
+  WEB -->|WS| SS
+  CLI -->|WS| SS
+  SS --> HUB
+  HUB --> WIRE
+  WEB -->|local| REG
   YOUR --> PLAY
-  YOUR --> REG
+  YOUR --> HUB
+  HUB --> REG
   PRE --> SEQ
   SEQ --> PLAY
   PLAY --> MODEL

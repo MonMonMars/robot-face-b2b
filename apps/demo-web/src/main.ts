@@ -1,25 +1,32 @@
 import {
   BUILTIN_PRESETS,
-  configToConnectionOptions,
   createExpressionFrame,
   createNeutralBlend,
-  createRobotAdapter,
-  ExpressionPlayback,
+  createSinglePrimitiveBlend,
   EXPRESSION_PRIMITIVES,
   getPresetById,
   normalizeBlend,
-  parseAdapterConfig,
   sequenceDurationMs,
+  sortKeyframes,
   type BlendWeights,
   type ExpressionPrimitive,
-  type ExpressionSequence,
-  type RobotAdapter,
   type RobotAdapterId,
 } from "@robot-face/sdk";
+import {
+  adapterConnectOptions,
+  defaultStreamUrl,
+  LocalExpressionSession,
+  StreamExpressionSession,
+  type ConnectionMode,
+  type ExpressionSession,
+} from "./session.js";
+import { TimelineEditor } from "./timeline-editor.js";
 
 const faceEl = document.querySelector<HTMLElement>("#face")!;
 const dominantLabel = document.querySelector<HTMLElement>("#dominant-label")!;
 const logEl = document.querySelector<HTMLElement>("#log")!;
+const connModeSelect = document.querySelector<HTMLSelectElement>("#conn-mode")!;
+const streamUrlInput = document.querySelector<HTMLInputElement>("#stream-url")!;
 const adapterSelect = document.querySelector<HTMLSelectElement>("#adapter-id")!;
 const connBadge = document.querySelector<HTMLElement>("#conn-badge")!;
 const connectBtn = document.querySelector<HTMLButtonElement>("#connect")!;
@@ -36,13 +43,31 @@ const timelineProgress = document.querySelector<HTMLElement>("#timeline-progress
 const timelineMarkers = document.querySelector<HTMLElement>("#timeline-markers")!;
 const timelineMeta = document.querySelector<HTMLElement>("#timeline-meta")!;
 const playbackStateEl = document.querySelector<HTMLElement>("#playback-state")!;
+const scrubInput = document.querySelector<HTMLInputElement>("#scrub")!;
+const addKeyframeBtn = document.querySelector<HTMLButtonElement>("#add-keyframe")!;
+const playTimelineBtn = document.querySelector<HTMLButtonElement>("#play-timeline")!;
+const exportSeqBtn = document.querySelector<HTMLButtonElement>("#export-seq")!;
+const importSeqInput = document.querySelector<HTMLInputElement>("#import-seq")!;
+const keyframeListEl = document.querySelector<HTMLElement>("#keyframe-list")!;
 
-let robot: RobotAdapter | null = null;
-const playback = new ExpressionPlayback();
+let session: ExpressionSession | null = null;
 let timelineRaf = 0;
-let activeSequence: ExpressionSequence | null = null;
-
 const sliderState: BlendWeights = createNeutralBlend(1).weights;
+
+streamUrlInput.value = defaultStreamUrl();
+
+const editor = new TimelineEditor({
+  onSequenceChange: (seq) => {
+    renderKeyframes();
+    editor.renderMarkers(timelineMarkers, timelineProgress, timelineMeta);
+    const dur = sequenceDurationMs(seq);
+    scrubInput.max = String(Math.max(dur, 1));
+  },
+  onScrub: (_t, weights) => updateFacePreview(weights),
+  onLog: (line) => appendLog(line),
+});
+
+editor.renderMarkers(timelineMarkers, timelineProgress, timelineMeta);
 
 for (const preset of BUILTIN_PRESETS) {
   const opt = document.createElement("option");
@@ -54,13 +79,14 @@ for (const preset of BUILTIN_PRESETS) {
 for (const p of EXPRESSION_PRIMITIVES) {
   const row = document.createElement("label");
   row.className = "slider-row";
-  row.innerHTML = `<span>${p}</span><input type="range" min="0" max="100" value="${p === "neutral" ? 100 : 0}" data-primitive="${p}" /><output>0</output>`;
+  const initial = p === "neutral" ? 100 : 0;
+  row.innerHTML = `<span>${p}</span><input type="range" min="0" max="100" value="${initial}" data-primitive="${p}" /><output>${initial}</output>`;
   blendSlidersEl.appendChild(row);
+  sliderState[p] = initial / 100;
   const input = row.querySelector("input")!;
   input.addEventListener("input", () => {
     sliderState[p] = Number(input.value) / 100;
-    const out = row.querySelector("output")!;
-    out.textContent = input.value;
+    row.querySelector("output")!.textContent = input.value;
     updateFacePreview(sliderState);
   });
 }
@@ -87,93 +113,8 @@ function updateFacePreview(weights: BlendWeights): void {
   const dom = dominantPrimitive(weights);
   faceEl.classList.add(`face--${dom}`);
   dominantLabel.textContent = dom;
+  syncSliders(weights);
 }
-
-function setConnectionUi(connected: boolean, label: string): void {
-  connBadge.textContent = label;
-  connBadge.className = connected ? "badge badge--on" : "badge badge--off";
-  connectBtn.textContent = connected ? "Disconnect" : "Connect";
-  applyPresetBtn.disabled = !connected;
-  playPresetBtn.disabled = !connected;
-  applyBlendBtn.disabled = !connected;
-  stopPlaybackBtn.disabled = !connected;
-}
-
-function adapterConnectionOptions(id: RobotAdapterId) {
-  if (id === "mock") return undefined;
-  if (id === "unitree") {
-    return configToConnectionOptions(
-      parseAdapterConfig({
-        adapterId: "unitree",
-        address: "127.0.0.1",
-        dryRun: true,
-        model: "g1",
-      }),
-    );
-  }
-  return configToConnectionOptions(
-    parseAdapterConfig({
-      adapterId: "humanoid-generic",
-      address: "http://127.0.0.1:9840",
-      dryRun: true,
-      platform: "optimus-class",
-    }),
-  );
-}
-
-function renderTimelineMarkers(sequence: ExpressionSequence): void {
-  timelineMarkers.innerHTML = "";
-  const duration = Math.max(sequenceDurationMs(sequence), 1);
-  for (const kf of sequence.keyframes) {
-    const m = document.createElement("span");
-    m.className = "marker";
-    m.style.left = `${(kf.atMs / duration) * 100}%`;
-    m.title = `@ ${kf.atMs}ms`;
-    timelineMarkers.appendChild(m);
-  }
-  timelineMeta.textContent = `${sequence.name} · ${duration}ms · ${sequence.loop ? "loop" : "once"}`;
-}
-
-function startTimelineUi(sequence: ExpressionSequence): void {
-  activeSequence = sequence;
-  renderTimelineMarkers(sequence);
-  cancelAnimationFrame(timelineRaf);
-  const tick = (): void => {
-    const prog = playback.getProgress();
-    playbackStateEl.textContent = playback.getState();
-    if (prog && activeSequence) {
-      const pct = (prog.localTimeMs / Math.max(prog.durationMs, 1)) * 100;
-      timelineProgress.style.width = `${Math.min(100, pct)}%`;
-    }
-    timelineRaf = requestAnimationFrame(tick);
-  };
-  tick();
-}
-
-connectBtn.addEventListener("click", async () => {
-  if (robot?.isConnected()) {
-    playback.stop();
-    cancelAnimationFrame(timelineRaf);
-    await robot.disconnect();
-    robot = null;
-    setConnectionUi(false, "Disconnected");
-    appendLog("Disconnected");
-    playbackStateEl.textContent = "idle";
-    return;
-  }
-
-  const adapterId = adapterSelect.value as RobotAdapterId;
-  robot = createRobotAdapter(adapterId);
-  await robot.connect(adapterConnectionOptions(adapterId));
-  const cap = robot.capabilities.platformLabel;
-  setConnectionUi(true, `Connected · ${cap}`);
-  appendLog(`Connected (${adapterId})`);
-
-  robot.expressionStream.subscribe((frame) => {
-    updateFacePreview(frame.blend.weights);
-    syncSliders(frame.blend.weights);
-  });
-});
 
 function syncSliders(weights: BlendWeights): void {
   for (const p of EXPRESSION_PRIMITIVES) {
@@ -187,64 +128,214 @@ function syncSliders(weights: BlendWeights): void {
   }
 }
 
-presetSelect.addEventListener("change", () => {
-  const preset = getPresetById(presetSelect.value);
-  presetDesc.textContent = preset?.description ?? "";
+function setUiConnected(connected: boolean, label: string): void {
+  connBadge.textContent = label;
+  connBadge.className = connected ? "badge badge--on" : "badge badge--off";
+  connectBtn.textContent = connected ? "Disconnect" : "Connect";
+  const en = connected;
+  applyPresetBtn.disabled = !en;
+  playPresetBtn.disabled = !en;
+  applyBlendBtn.disabled = !en;
+  stopPlaybackBtn.disabled = !en;
+  addKeyframeBtn.disabled = !en;
+  playTimelineBtn.disabled = !en;
+}
+
+function createSession(mode: ConnectionMode): ExpressionSession {
+  if (mode === "stream") {
+    return new StreamExpressionSession(streamUrlInput.value.trim());
+  }
+  const adapterId = adapterSelect.value as RobotAdapterId;
+  return new LocalExpressionSession(adapterId, adapterConnectOptions(adapterId));
+}
+
+function startProgressLoop(): void {
+  cancelAnimationFrame(timelineRaf);
+  const tick = (): void => {
+    const pb = session?.getPlayback();
+    playbackStateEl.textContent = pb?.getState() ?? "stream";
+    const prog = pb?.getProgress();
+    if (prog) {
+      const pct = (prog.localTimeMs / Math.max(prog.durationMs, 1)) * 100;
+      timelineProgress.style.width = `${Math.min(100, pct)}%`;
+      scrubInput.value = String(Math.round(prog.localTimeMs));
+    }
+    timelineRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function renderKeyframes(): void {
+  keyframeListEl.innerHTML = "";
+  const sorted = sortKeyframes(editor.sequence.keyframes);
+  sorted.forEach((kf, index) => {
+    const dom = dominantPrimitive(kf.blend.weights);
+    const row = document.createElement("div");
+    row.className = "keyframe-row";
+    row.innerHTML = `
+      <input type="number" data-k="atMs" value="${kf.atMs}" min="0" step="50" title="at ms" />
+      <select data-k="primitive">${EXPRESSION_PRIMITIVES.map((p) => `<option value="${p}" ${p === dom ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <input type="number" data-k="intensity" value="${Math.round(kf.blend.intensity * 100)}" min="0" max="100" />
+      <input type="number" data-k="holdMs" value="${kf.holdMs ?? 0}" min="0" step="50" title="hold ms" />
+      <div class="kf-actions">
+        <button type="button" data-act="up">↑</button>
+        <button type="button" data-act="down">↓</button>
+        <button type="button" data-act="del">×</button>
+      </div>`;
+
+    const bind = (): void => {
+      const atMs = Number(row.querySelector<HTMLInputElement>('[data-k="atMs"]')!.value);
+      const primitive = row.querySelector<HTMLSelectElement>('[data-k="primitive"]')!
+        .value as ExpressionPrimitive;
+      const intensity =
+        Number(row.querySelector<HTMLInputElement>('[data-k="intensity"]')!.value) / 100;
+      const holdMs = Number(row.querySelector<HTMLInputElement>('[data-k="holdMs"]')!.value);
+      editor.updateKeyframe(index, {
+        atMs,
+        holdMs,
+        blend: createSinglePrimitiveBlend(primitive, intensity),
+      });
+    };
+
+    row.querySelectorAll("input,select").forEach((el) => {
+      el.addEventListener("change", bind);
+    });
+    row.querySelector('[data-act="up"]')!.addEventListener("click", () => editor.moveKeyframe(index, -1));
+    row.querySelector('[data-act="down"]')!.addEventListener("click", () => editor.moveKeyframe(index, 1));
+    row.querySelector('[data-act="del"]')!.addEventListener("click", () => editor.removeKeyframe(index));
+
+    keyframeListEl.appendChild(row);
+  });
+}
+
+renderKeyframes();
+
+connectBtn.addEventListener("click", async () => {
+  if (session?.isConnected()) {
+    session.stopPlayback();
+    cancelAnimationFrame(timelineRaf);
+    await session.disconnect();
+    session = null;
+    setUiConnected(false, "Disconnected");
+    appendLog("Disconnected");
+    return;
+  }
+
+  session = createSession(connModeSelect.value as ConnectionMode);
+  await session.connect();
+  const label =
+    session.mode === "stream"
+      ? `Stream · ${session.platformLabel()}`
+      : `Local · ${session.platformLabel()}`;
+  setUiConnected(true, label);
+  appendLog(`Connected (${session.mode})`);
+
+  session.onFrame((frame) => updateFacePreview(frame.blend.weights));
+  session.onServerMessage((msg) => {
+    if (msg.type === "error") appendLog(`Error: ${msg.message}`);
+    if (msg.type === "playbackState") playbackStateEl.textContent = msg.state;
+  });
+
+  if (session.getPlayback()) startProgressLoop();
 });
 
+connModeSelect.addEventListener("change", () => {
+  const stream = connModeSelect.value === "stream";
+  streamUrlInput.parentElement!.style.display = stream ? "grid" : "none";
+  adapterSelect.parentElement!.style.display = stream ? "none" : "grid";
+});
+
+connModeSelect.dispatchEvent(new Event("change"));
+
+presetSelect.addEventListener("change", () => {
+  presetDesc.textContent = getPresetById(presetSelect.value)?.description ?? "";
+});
 presetSelect.dispatchEvent(new Event("change"));
 
 applyPresetBtn.addEventListener("click", () => {
   void (async () => {
-    if (!robot?.isConnected()) return;
+    if (!session?.isConnected()) return;
     const preset = getPresetById(presetSelect.value);
-    if (!preset?.blend) {
-      appendLog("Preset has no static blend — use Play sequence");
-      return;
-    }
-    const frame = createExpressionFrame(preset.blend, {
-      durationMs: Number(durationInput.value),
-    });
-    await robot.setExpression(frame);
+    if (!preset?.blend) return appendLog("No static blend on preset");
+    await session.setExpression(
+      createExpressionFrame(preset.blend, { durationMs: Number(durationInput.value) }),
+    );
     appendLog(`Applied preset ${preset.id}`);
   })();
 });
 
 playPresetBtn.addEventListener("click", () => {
   void (async () => {
-    if (!robot?.isConnected()) return;
+    if (!session?.isConnected()) return;
     const preset = getPresetById(presetSelect.value);
-    if (!preset?.sequence) {
-      appendLog("Preset has no sequence — use Apply pose");
-      return;
+    if (!preset?.sequence) return appendLog("No sequence on preset");
+    if (preset.sequence) {
+      editor.sequence = { ...preset.sequence };
+      editor.renderMarkers(timelineMarkers, timelineProgress, timelineMeta);
+      renderKeyframes();
     }
-    playback.stop();
-    startTimelineUi(preset.sequence);
-    await playback.playSequence(preset.sequence, robot, {
-      loop: loopCheckbox.checked || preset.sequence.loop,
-    });
+    await session.playSequence(
+      preset.sequence,
+      loopCheckbox.checked || preset.sequence.loop,
+    );
+    startProgressLoop();
     appendLog(`Playing ${preset.sequence.name}`);
   })();
 });
 
 stopPlaybackBtn.addEventListener("click", () => {
-  playback.stop();
-  playbackStateEl.textContent = playback.getState();
+  session?.stopPlayback();
   appendLog("Playback stopped");
 });
 
 applyBlendBtn.addEventListener("click", () => {
   void (async () => {
-    if (!robot?.isConnected()) return;
-    const blend = normalizeBlend({
-      weights: { ...sliderState },
-      intensity: 1,
-    });
-    await robot.setExpression(
+    if (!session?.isConnected()) return;
+    const blend = normalizeBlend({ weights: { ...sliderState }, intensity: 1 });
+    await session.setExpression(
       createExpressionFrame(blend, { durationMs: Number(durationInput.value) }),
     );
     appendLog("Sent custom blend");
   })();
+});
+
+addKeyframeBtn.addEventListener("click", () => {
+  const dom = dominantPrimitive(sliderState);
+  const dur = sequenceDurationMs(editor.sequence);
+  editor.addKeyframe(dom, sliderState[dom] || 1, dur + 200);
+  appendLog("Added keyframe");
+});
+
+playTimelineBtn.addEventListener("click", () => {
+  void (async () => {
+    if (!session?.isConnected()) return;
+    await session.playSequence(editor.sequence, editor.sequence.loop || loopCheckbox.checked);
+    startProgressLoop();
+    appendLog("Playing custom timeline");
+  })();
+});
+
+scrubInput.addEventListener("input", () => {
+  editor.scrub(Number(scrubInput.value));
+  const pct =
+    (Number(scrubInput.value) / Math.max(Number(scrubInput.max), 1)) * 100;
+  timelineProgress.style.width = `${pct}%`;
+});
+
+exportSeqBtn.addEventListener("click", () => {
+  const blob = new Blob([editor.exportJson()], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${editor.sequence.id}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+importSeqInput.addEventListener("change", () => {
+  const file = importSeqInput.files?.[0];
+  if (!file) return;
+  void file.text().then((text) => editor.importJson(text));
+  importSeqInput.value = "";
 });
 
 updateFacePreview(sliderState);

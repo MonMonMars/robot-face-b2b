@@ -17,7 +17,18 @@
         <section class="panel">
           <h2>Connection</h2>
           <label class="field">
-            <span>Adapter</span>
+            <span>Mode</span>
+            <select id="conn-mode">
+              <option value="local">In-process adapter</option>
+              <option value="stream" selected>Stream server (WebSocket)</option>
+            </select>
+          </label>
+          <label class="field" id="stream-url-wrap">
+            <span>Stream URL</span>
+            <input id="stream-url" type="text" value="ws://127.0.0.1:8765/stream" />
+          </label>
+          <label class="field" id="adapter-wrap">
+            <span>Adapter (local / server env)</span>
             <select id="adapter-id">
               <option value="mock">Mock (simulator)</option>
               <option value="unitree">Unitree (dry-run)</option>
@@ -67,14 +78,30 @@
 
         <section class="panel timeline-panel">
           <div class="timeline-header">
-            <h2>Expression timeline</h2>
+            <h2>Timeline editor</h2>
             <span id="playback-state" class="playback-state">idle</span>
           </div>
-          <div class="timeline-track">
+          <div class="timeline-track" id="timeline-scrub-wrap">
             <div id="timeline-progress" class="timeline-progress"></div>
             <div id="timeline-markers" class="timeline-markers"></div>
           </div>
-          <p id="timeline-meta" class="hint">Connect and play a preset sequence to see progress.</p>
+          <label class="field">
+            <span>Scrub (ms)</span>
+            <input id="scrub" type="range" min="0" max="1000" value="0" />
+          </label>
+          <p id="timeline-meta" class="hint">Edit keyframes below; export JSON for reuse.</p>
+
+          <div class="row timeline-actions">
+            <button id="add-keyframe" type="button" class="btn" disabled>Add keyframe</button>
+            <button id="play-timeline" type="button" class="btn" disabled>Play timeline</button>
+            <button id="export-seq" type="button" class="btn">Export JSON</button>
+            <label class="btn btn--file">
+              Import JSON
+              <input id="import-seq" type="file" accept="application/json,.json" hidden />
+            </label>
+          </div>
+
+          <div id="keyframe-list" class="keyframe-list"></div>
         </section>
 
         <section class="panel log-panel">

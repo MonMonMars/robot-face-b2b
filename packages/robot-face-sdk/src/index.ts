@@ -44,6 +44,19 @@ export {
   type ExpressionStreamListener,
   type Unsubscribe,
 } from "./stream/channel.js";
+export {
+  parseWireMessage,
+  serializeWireMessage,
+  type WireClientMessage,
+  type WireServerMessage,
+} from "./stream/wire-protocol.js";
+export { exportSequenceJson, importSequenceJson } from "./stream/sequence-io.js";
+export { ExpressionStreamHub, type StreamHubListener } from "./stream/expression-stream-hub.js";
+export {
+  ExpressionStreamClient,
+  type ExpressionStreamClientOptions,
+  type StreamClientListener,
+} from "./stream/ws-client.js";
 export type {
   RobotAdapter,
   RobotAdapterCapabilities,

@@ -386,6 +386,55 @@ input[type="number"] {
   transform: translateX(-1px);
 }
 
+.timeline-actions {
+  margin: 0.75rem 0;
+}
+
+.btn--file {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.keyframe-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.keyframe-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 56px 72px auto;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.78rem;
+}
+
+.keyframe-row input,
+.keyframe-row select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.25rem 0.35rem;
+  border-radius: 6px;
+  font: inherit;
+  width: 100%;
+}
+
+.kf-actions {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.kf-actions button {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  min-width: 28px;
+}
+
 .log-panel pre {
   background: var(--bg);
   border: 1px solid var(--border);
