@@ -1,0 +1,11 @@
+{
+  "adapterId": "humanoid-generic",
+  "address": "http://127.0.0.1:9840",
+  "platform": "optimus-class",
+  "frameEndpoint": "/v1/expression/frame",
+  "streamHz": 24,
+  "dryRun": true,
+  "credentials": {
+    "bearerToken": "YOUR_BRIDGE_TOKEN"
+  }
+}

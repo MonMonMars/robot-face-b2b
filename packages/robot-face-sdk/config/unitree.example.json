@@ -1,0 +1,10 @@
+{
+  "adapterId": "unitree",
+  "address": "192.168.123.161",
+  "model": "g1",
+  "streamHz": 30,
+  "dryRun": true,
+  "credentials": {
+    "apiKey": "YOUR_UNITREE_API_KEY"
+  }
+}
