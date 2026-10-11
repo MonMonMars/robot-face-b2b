@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+coverage/
+*.log
+.vite/
+*.tgz
+test-results/
+playwright-report/
+docs/api/*
+!docs/api/.gitkeep
+.robot-face/

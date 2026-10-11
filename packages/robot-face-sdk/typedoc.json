@@ -1,0 +1,26 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "out": "../../docs/api",
+  "readme": "README.md",
+  "name": "@robot-face/sdk",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "exclude": ["**/*.test.ts", "**/integration/**"],
+  "kindSortOrder": [
+    "Document",
+    "Module",
+    "Namespace",
+    "Enum",
+    "EnumMember",
+    "Class",
+    "Interface",
+    "TypeAlias",
+    "Constructor",
+    "Property",
+    "Method",
+    "Function",
+    "Accessor",
+    "Variable"
+  ]
+}

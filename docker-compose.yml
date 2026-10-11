@@ -1,0 +1,30 @@
+services:
+  stream-server:
+    build:
+      context: .
+      target: stream-server
+    environment:
+      ADAPTER: mock
+      HOST: 0.0.0.0
+      PORT: "8765"
+    ports:
+      - "8765:8765"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:8765/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  demo-web:
+    build:
+      context: .
+      target: demo-web
+    ports:
+      - "5173:80"
+    depends_on:
+      stream-server:
+        condition: service_healthy

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Robot Face B2B — Control Studio</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <header class="brand">
+          <h1>Robot Face</h1>
+          <span class="brand__tag">B2B Control</span>
+        </header>
+
+        <section class="panel">
+          <h2>Connection</h2>
+          <label class="field">
+            <span>Mode</span>
+            <select id="conn-mode">
+              <option value="local">In-process adapter</option>
+              <option value="stream" selected>Stream server (WebSocket)</option>
+            </select>
+          </label>
+          <label class="field" id="stream-url-wrap">
+            <span>Stream URL</span>
+            <input id="stream-url" type="text" value="ws://127.0.0.1:8765/stream" />
+          </label>
+          <label class="field" id="stream-token-wrap">
+            <span>Stream token (optional)</span>
+            <input id="stream-token" type="password" placeholder="STREAM_TOKEN if server auth on" autocomplete="off" />
+          </label>
+          <label class="field" id="adapter-wrap">
+            <span>Adapter (local / server env)</span>
+            <select id="adapter-id">
+              <option value="mock">Mock (simulator)</option>
+              <option value="unitree">Unitree (dry-run)</option>
+              <option value="humanoid-generic">Humanoid (dry-run)</option>
+            </select>
+          </label>
+          <div id="conn-badge" class="badge badge--off" role="status">Disconnected</div>
+          <p id="presence-count" class="hint">Stream clients: —</p>
+          <button id="connect" type="button" class="btn btn--primary">Connect</button>
+          <p class="hint shortcuts-hint">
+            Shortcuts: <kbd>Space</kbd> pause/resume · <kbd>←</kbd>/<kbd>→</kbd> seek · <kbd>P</kbd> play timeline · <kbd>?</kbd> help
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>Presets</h2>
+          <select id="preset" class="preset-select"></select>
+          <p id="preset-desc" class="hint"></p>
+          <div class="row">
+            <button id="apply-preset" type="button" class="btn" disabled>Apply pose</button>
+            <button id="play-preset" type="button" class="btn" disabled>Play sequence</button>
+          </div>
+          <label class="field check">
+            <input id="loop-playback" type="checkbox" />
+            <span>Loop sequence</span>
+          </label>
+          <div class="row">
+            <button id="pause-playback" type="button" class="btn" disabled>Pause</button>
+            <button id="resume-playback" type="button" class="btn" disabled>Resume</button>
+          </div>
+          <button id="stop-playback" type="button" class="btn btn--ghost" disabled>Stop playback</button>
+        </section>
+      </aside>
+
+      <main class="stage">
+        <div class="stage__top">
+          <section class="face-wrap" aria-live="polite">
+            <canvas id="face-canvas" class="face-canvas" width="440" height="480" role="img" aria-label="Robot face blend preview"></canvas>
+            <div id="face-empty" class="face-empty">
+              <p>Connect to preview live expressions</p>
+              <span class="hint">Stream server or in-process mock</span>
+            </div>
+            <div id="dominant-label" class="dominant">neutral</div>
+          </section>
+
+          <section class="panel blends">
+            <h2>Live blend</h2>
+            <div id="blend-sliders" class="sliders"></div>
+            <label class="field">
+              <span>Transition (ms)</span>
+              <input id="duration" type="number" min="0" max="3000" value="350" />
+            </label>
+            <button id="apply-blend" type="button" class="btn btn--primary" disabled>Send frame</button>
+          </section>
+        </div>
+
+        <section class="panel timeline-panel">
+          <div class="timeline-header">
+            <h2>Timeline editor</h2>
+            <span id="playback-state" class="playback-state">idle</span>
+          </div>
+          <div class="timeline-track" id="timeline-scrub-wrap">
+            <div id="timeline-progress" class="timeline-progress"></div>
+            <div id="timeline-markers" class="timeline-markers"></div>
+          </div>
+          <label class="field">
+            <span>Scrub (ms)</span>
+            <input id="scrub" type="range" min="0" max="1000" value="0" />
+          </label>
+          <p id="timeline-meta" class="hint">Edit keyframes below; export JSON for reuse.</p>
+
+          <div class="row timeline-actions">
+            <button id="add-keyframe" type="button" class="btn" disabled>Add keyframe</button>
+            <button id="play-timeline" type="button" class="btn" disabled>Play timeline</button>
+            <button id="export-seq" type="button" class="btn">Export JSON</button>
+            <label class="btn btn--file">
+              Import JSON
+              <input id="import-seq" type="file" accept="application/json,.json" hidden />
+            </label>
+          </div>
+
+          <div class="library-panel">
+            <h3 class="library-title">Sequence library (stream server)</h3>
+            <p class="hint">Persist timelines on the server under <code>SEQUENCE_STORE_DIR</code>.</p>
+            <label class="field">
+              <span>Library id</span>
+              <input id="library-seq-id" type="text" placeholder="my-demo-sequence" />
+            </label>
+            <div class="row">
+              <button id="save-library-seq" type="button" class="btn">Save to library</button>
+              <button id="refresh-library-seq" type="button" class="btn">Refresh list</button>
+            </div>
+            <label class="field">
+              <span>Saved sequences</span>
+              <select id="library-seq-list">
+                <option value="">— load from server —</option>
+              </select>
+            </label>
+            <button id="load-library-seq" type="button" class="btn">Load selected</button>
+          </div>
+
+          <div id="keyframe-list" class="keyframe-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Session record / replay</h2>
+          <p class="hint">Capture expression frames and playback commands as JSON for demos and QA.</p>
+          <div class="row">
+            <button id="record-session" type="button" class="btn" disabled>Start recording</button>
+            <button id="stop-record-session" type="button" class="btn" disabled>Stop &amp; export</button>
+            <label class="btn btn--file">
+              Replay JSON
+              <input id="replay-session" type="file" accept="application/json,.json" hidden />
+            </label>
+          </div>
+          <p id="record-status" class="hint">Not recording</p>
+        </section>
+
+        <section class="panel log-panel">
+          <h2>Event log</h2>
+          <pre id="log"></pre>
+        </section>
+      </main>
+    </div>
+    <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

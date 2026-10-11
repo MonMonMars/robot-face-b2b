@@ -1,0 +1,67 @@
+{
+  "name": "@robot-face/sdk",
+  "version": "0.1.0",
+  "description": "Core domain model and robot adapters for facial expression control",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MonMonMars/robot-face-b2b.git",
+    "directory": "packages/robot-face-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/MonMonMars/robot-face-b2b/issues"
+  },
+  "homepage": "https://github.com/MonMonMars/robot-face-b2b/tree/main/packages/robot-face-sdk#readme",
+  "keywords": [
+    "robot",
+    "humanoid",
+    "facial-expression",
+    "unitree",
+    "websocket",
+    "b2b",
+    "sdk"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server-entry.d.ts",
+      "import": "./dist/server-entry.js",
+      "default": "./dist/server-entry.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:watch": "vitest",
+    "docs": "typedoc --options typedoc.json"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "typedoc": "^0.28.0",
+    "vitest": "^2.1.8"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
