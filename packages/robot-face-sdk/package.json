@@ -33,6 +33,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server-entry.d.ts",
+      "import": "./dist/server-entry.js",
+      "default": "./dist/server-entry.js"
     }
   },
   "publishConfig": {

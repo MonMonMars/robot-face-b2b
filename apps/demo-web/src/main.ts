@@ -27,6 +27,12 @@ import {
 import { FacePreviewCanvas } from "./face-preview.js";
 import { TimelineEditor } from "./timeline-editor.js";
 import { showToast } from "./toast.js";
+import {
+  listStoredSequences,
+  loadStoredSequence,
+  saveStoredSequence,
+  streamHttpBase,
+} from "./sequence-library.js";
 
 const faceCanvas = document.querySelector<HTMLCanvasElement>("#face-canvas")!;
 const facePreview = new FacePreviewCanvas(faceCanvas, { showBars: true });
@@ -65,6 +71,11 @@ const replaySessionInput = document.querySelector<HTMLInputElement>("#replay-ses
 const recordStatusEl = document.querySelector<HTMLElement>("#record-status")!;
 const faceEmptyEl = document.querySelector<HTMLElement>("#face-empty")!;
 const presenceCountEl = document.querySelector<HTMLElement>("#presence-count")!;
+const librarySeqIdInput = document.querySelector<HTMLInputElement>("#library-seq-id")!;
+const librarySeqList = document.querySelector<HTMLSelectElement>("#library-seq-list")!;
+const saveLibrarySeqBtn = document.querySelector<HTMLButtonElement>("#save-library-seq")!;
+const refreshLibrarySeqBtn = document.querySelector<HTMLButtonElement>("#refresh-library-seq")!;
+const loadLibrarySeqBtn = document.querySelector<HTMLButtonElement>("#load-library-seq")!;
 
 let session: ExpressionSession | null = null;
 const sessionRecorder = new SessionRecorder();
@@ -73,6 +84,40 @@ let timelineRaf = 0;
 const sliderState: BlendWeights = createNeutralBlend(1).weights;
 
 streamUrlInput.value = defaultStreamUrl();
+
+function libraryHttpContext(): { base: string; token?: string } | null {
+  if (connModeSelect.value !== "stream") return null;
+  try {
+    const base = streamHttpBase(streamUrlInput.value.trim());
+    const token = streamTokenInput.value.trim();
+    return { base, token: token || undefined };
+  } catch {
+    return null;
+  }
+}
+
+async function refreshSequenceLibrary(): Promise<void> {
+  const ctx = libraryHttpContext();
+  if (!ctx) {
+    showToast("Sequence library requires stream server mode", "error");
+    return;
+  }
+  try {
+    const entries = await listStoredSequences(ctx.base, ctx.token);
+    librarySeqList.innerHTML = '<option value="">— load from server —</option>';
+    for (const entry of entries) {
+      const opt = document.createElement("option");
+      opt.value = entry.id;
+      opt.textContent = `${entry.name} (${entry.id})`;
+      librarySeqList.appendChild(opt);
+    }
+    appendLog(`Library: ${entries.length} sequence(s) on server`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    showToast(`Library refresh failed — ${msg}`, "error");
+    appendLog(`Library refresh failed: ${msg}`);
+  }
+}
 
 const editor = new TimelineEditor({
   onSequenceChange: (seq) => {
@@ -359,6 +404,68 @@ connectBtn.addEventListener("click", async () => {
   });
 
   startProgressLoop();
+  if (session.mode === "stream") {
+    void refreshSequenceLibrary();
+  }
+});
+
+saveLibrarySeqBtn.addEventListener("click", () => {
+  void (async () => {
+    const ctx = libraryHttpContext();
+    if (!ctx) {
+      showToast("Sequence library requires stream server mode", "error");
+      return;
+    }
+    const id =
+      librarySeqIdInput.value.trim() ||
+      editor.sequence.id.trim() ||
+      `seq-${Date.now()}`;
+    try {
+      const entry = await saveStoredSequence(
+        ctx.base,
+        id,
+        { ...editor.sequence, id },
+        ctx.token,
+      );
+      librarySeqIdInput.value = entry.id;
+      await refreshSequenceLibrary();
+      librarySeqList.value = entry.id;
+      showToast(`Saved “${entry.name}” to library`, "success");
+      appendLog(`Saved sequence ${entry.id} to stream library`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Save failed — ${msg}`, "error");
+      appendLog(`Library save failed: ${msg}`);
+    }
+  })();
+});
+
+refreshLibrarySeqBtn.addEventListener("click", () => {
+  void refreshSequenceLibrary();
+});
+
+loadLibrarySeqBtn.addEventListener("click", () => {
+  void (async () => {
+    const ctx = libraryHttpContext();
+    const id = librarySeqList.value;
+    if (!ctx || !id) {
+      showToast("Pick a saved sequence to load", "error");
+      return;
+    }
+    try {
+      const sequence = await loadStoredSequence(ctx.base, id, ctx.token);
+      editor.sequence = sequence;
+      editor.renderMarkers(timelineMarkers, timelineProgress, timelineMeta);
+      renderKeyframes();
+      librarySeqIdInput.value = sequence.id;
+      showToast(`Loaded “${sequence.name}” from library`, "success");
+      appendLog(`Loaded library sequence ${id}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Load failed — ${msg}`, "error");
+      appendLog(`Library load failed: ${msg}`);
+    }
+  })();
 });
 
 recordSessionBtn.addEventListener("click", () => {

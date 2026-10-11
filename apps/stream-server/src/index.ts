@@ -13,6 +13,12 @@ import {
   validateStreamToken,
   type RobotAdapterId,
 } from "@robot-face/sdk";
+import {
+  handleStreamHttpRequest,
+  readSequenceStoreConfig,
+  SequenceFilesystemStore,
+  StreamMetricsCollector,
+} from "@robot-face/sdk/server";
 
 const PORT = Number(process.env.PORT ?? 8765);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -90,6 +96,10 @@ async function main(): Promise<void> {
   const guardConfig = readStreamServerGuardConfig();
   const connectionGuard = new StreamConnectionGuard(guardConfig);
   const presenceTracker = new StreamPresenceTracker();
+  const metrics = new StreamMetricsCollector();
+  const sequenceStoreConfig = readSequenceStoreConfig();
+  const sequenceStore = new SequenceFilesystemStore(sequenceStoreConfig);
+  await sequenceStore.ensureReady();
 
   const adapter = createRobotAdapter(ADAPTER_ID);
   const hub = new ExpressionStreamHub(adapter, {
@@ -98,23 +108,20 @@ async function main(): Promise<void> {
   });
   await hub.start(adapterConnectOptions(ADAPTER_ID));
 
-  const httpServer = createServer((_req, res) => {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(
-      JSON.stringify({
-        service: "robot-face-stream",
-        adapter: ADAPTER_ID,
-        connected: adapter.isConnected(),
-        wsPath: "/stream",
-        authRequired: Boolean(STREAM_TOKEN),
-        unitreeBridge: process.env.UNITREE_BRIDGE === "1",
-        humanoidBridge: process.env.HUMANOID_BRIDGE === "1",
-        maxClients: guardConfig.maxClients,
-        minMessageIntervalMs: guardConfig.minMessageIntervalMs,
-        activeClients: connectionGuard.getActiveClients(),
-        streamClients: presenceTracker.snapshot().clientCount,
-      }),
-    );
+  const httpCtx = {
+    adapter,
+    adapterId: ADAPTER_ID,
+    streamToken: STREAM_TOKEN,
+    guardConfig,
+    connectionGuard,
+    presenceTracker,
+    sequenceStore,
+    sequenceStoreDir: sequenceStoreConfig.directory,
+    metrics,
+  };
+
+  const httpServer = createServer((req, res) => {
+    void handleStreamHttpRequest(req, res, httpCtx);
   });
 
   const wss = new WebSocketServer({ noServer: true });
@@ -178,6 +185,7 @@ async function main(): Promise<void> {
     broadcastPresence();
 
     socket.on("message", (data) => {
+      metrics.recordInboundMessage();
       if (!connectionGuard.checkMessageRate(lastInboundAt)) {
         socket.send(
           hub.serialize({
@@ -217,7 +225,7 @@ async function main(): Promise<void> {
 
   httpServer.listen(PORT, HOST, () => {
     console.log(
-      `Robot Face stream server  http://${HOST}:${PORT}  ws://${HOST}:${PORT}/stream  adapter=${ADAPTER_ID}  auth=${STREAM_TOKEN ? "on" : "off"}`,
+      `Robot Face stream server  http://${HOST}:${PORT}  ws://${HOST}:${PORT}/stream  adapter=${ADAPTER_ID}  auth=${STREAM_TOKEN ? "on" : "off"}  sequences=${sequenceStoreConfig.directory}`,
     );
   });
 }

@@ -26,7 +26,8 @@ The SDK is version **0.1.0** and publish-ready. Packaging checklist and semver n
 - [packages/robot-face-sdk/README.md](./packages/robot-face-sdk/README.md) (package consumer docs)
 - [CHANGELOG.md](./CHANGELOG.md)
 - Verify tarball locally: `npm run pack:sdk`
-- **API reference (TypeDoc):** `npm run docs` → [docs/api](./docs/api/index.html)
+- **API reference (TypeDoc):** `npm run docs` → `docs/api/index.html` (generated locally / in CI, not committed)
+- **Contributing:** [CONTRIBUTING.md](./CONTRIBUTING.md)
 - **CI smoke:** Playwright studio + stream (`npm run test:smoke`); headless health script (`npm run test:smoke:health`)
 
 ---
@@ -153,6 +154,30 @@ Protect the mock/production stream hub with env-configurable limits (defaults in
 | `STREAM_MIN_MESSAGE_MS` | `20` | Min interval between inbound messages per client (`0` = off) |
 
 Over-capacity upgrades receive **503**; fast senders get an `error` wire message. Health JSON includes `maxClients`, `minMessageIntervalMs`, and `activeClients`.
+
+### Sequence library (stream server)
+
+Persist named timelines on the stream-server filesystem (default directory **`.robot-face/sequences`**, override with **`SEQUENCE_STORE_DIR`**):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/sequences` | List `{ id, name, updatedAt }` |
+| `GET` | `/sequences/:id` | Load full sequence JSON |
+| `PUT` | `/sequences/:id` | Save sequence (body = sequence object) |
+| `DELETE` | `/sequences/:id` | Remove saved sequence |
+
+Same **`STREAM_TOKEN`** auth as WebSocket (Bearer or `?token=`). The control studio **Sequence library** panel saves/loads against these endpoints when in stream mode.
+
+### Ops metrics
+
+`GET /metrics` returns JSON for B2B ops demos:
+
+- `uptimeSeconds`, `startedAt`, `adapter`, `authEnabled`
+- `activeClients`, `streamClients`
+- `messagesTotal`, `messagesPerSecond` (rolling ~1s window)
+- `sequenceStoreDir`
+
+Example: `curl -s http://127.0.0.1:8765/metrics | jq`
 
 ### Unitree OEM bridge (feature flag)
 

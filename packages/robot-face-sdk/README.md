@@ -60,6 +60,14 @@ client.close();
 
 Full partner walkthrough: [examples/customer-integration](../../examples/customer-integration/README.md) in the monorepo.
 
+## Node stream server helpers
+
+Server-only APIs (filesystem sequence library, HTTP routes, metrics) live on the **`@robot-face/sdk/server`** subpath — not in the browser bundle.
+
+```typescript
+import { SequenceFilesystemStore, handleStreamHttpRequest } from "@robot-face/sdk/server";
+```
+
 ## Publishing
 
 Maintainers: see [PUBLISH.md](./PUBLISH.md).

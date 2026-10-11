@@ -114,6 +114,26 @@
             </label>
           </div>
 
+          <div class="library-panel">
+            <h3 class="library-title">Sequence library (stream server)</h3>
+            <p class="hint">Persist timelines on the server under <code>SEQUENCE_STORE_DIR</code>.</p>
+            <label class="field">
+              <span>Library id</span>
+              <input id="library-seq-id" type="text" placeholder="my-demo-sequence" />
+            </label>
+            <div class="row">
+              <button id="save-library-seq" type="button" class="btn">Save to library</button>
+              <button id="refresh-library-seq" type="button" class="btn">Refresh list</button>
+            </div>
+            <label class="field">
+              <span>Saved sequences</span>
+              <select id="library-seq-list">
+                <option value="">— load from server —</option>
+              </select>
+            </label>
+            <button id="load-library-seq" type="button" class="btn">Load selected</button>
+          </div>
+
           <div id="keyframe-list" class="keyframe-list"></div>
         </section>
 

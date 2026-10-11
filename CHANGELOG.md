@@ -6,7 +6,10 @@ All notable changes to this project are documented here. Versioning follows [Sem
 
 ### Added
 
-- TypeDoc API reference at `docs/api` (`npm run docs`).
+- **Sequence library** on stream-server (`SEQUENCE_STORE_DIR`, HTTP `/sequences`, studio save/load/browse).
+- **`GET /metrics`** JSON ops snapshot (uptime, clients, message counters, adapter, auth).
+- **CONTRIBUTING.md** — local setup and PR expectations.
+- TypeDoc API reference generated in CI (`npm run docs` → `docs/api`, not committed).
 - Playwright studio smoke test and `scripts/smoke-health.mjs`.
 - Stream **`presence`** / client **`identify`** wire messages; studio shows connected client count.
 - Studio keyboard shortcuts (pause/resume, seek, play timeline).
