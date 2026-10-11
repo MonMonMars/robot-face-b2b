@@ -11,6 +11,22 @@ Open **http://localhost:5173** → **Connect** (Stream server mode, default URL)
 
 Stop the stack with `npm run stack:down`.
 
+### Partner integration sample
+
+Minimal embed code for a B2B customer app (stream server + mock adapter):
+
+- [examples/customer-integration](./examples/customer-integration/README.md)
+- Run: `ADAPTER=mock npm run stream:server` then `npm run example:customer`
+
+### npm package (`@robot-face/sdk`)
+
+The SDK is version **0.1.0** and publish-ready. Packaging checklist and semver notes:
+
+- [packages/robot-face-sdk/PUBLISH.md](./packages/robot-face-sdk/PUBLISH.md)
+- [packages/robot-face-sdk/README.md](./packages/robot-face-sdk/README.md) (package consumer docs)
+- [CHANGELOG.md](./CHANGELOG.md)
+- Verify tarball locally: `npm run pack:sdk`
+
 ---
 
 B2B software for **robot facial expressions** — a typed TypeScript SDK and control studio for humanoid platforms (Unitree-class, Tesla Optimus–class, and custom OEM bridges). Drive normalized expression primitives, keyframed sequences, and realtime streams from your app, CLI, or browser demo.

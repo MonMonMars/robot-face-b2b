@@ -19,6 +19,8 @@ jobs:
       - run: npm test
       - run: npm run test:integration
       - run: npm run lint
+      - run: npm pack -w @robot-face/sdk
+      - run: test -f robot-face-sdk-0.1.0.tgz
 
   docker-compose:
     runs-on: ubuntu-latest

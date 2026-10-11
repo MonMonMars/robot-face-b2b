@@ -26,6 +26,7 @@ import {
 } from "./session.js";
 import { FacePreviewCanvas } from "./face-preview.js";
 import { TimelineEditor } from "./timeline-editor.js";
+import { showToast } from "./toast.js";
 
 const faceCanvas = document.querySelector<HTMLCanvasElement>("#face-canvas")!;
 const facePreview = new FacePreviewCanvas(faceCanvas, { showBars: true });
@@ -62,6 +63,7 @@ const recordSessionBtn = document.querySelector<HTMLButtonElement>("#record-sess
 const stopRecordSessionBtn = document.querySelector<HTMLButtonElement>("#stop-record-session")!;
 const replaySessionInput = document.querySelector<HTMLInputElement>("#replay-session")!;
 const recordStatusEl = document.querySelector<HTMLElement>("#record-status")!;
+const faceEmptyEl = document.querySelector<HTMLElement>("#face-empty")!;
 
 let session: ExpressionSession | null = null;
 const sessionRecorder = new SessionRecorder();
@@ -167,7 +169,12 @@ function setConnectionBadge(
   }
 }
 
+function setFacePreviewEmpty(empty: boolean): void {
+  faceEmptyEl.classList.toggle("is-hidden", !empty);
+}
+
 function setUiConnected(connected: boolean, label: string): void {
+  setFacePreviewEmpty(!connected);
   setConnectionBadge(connected, label);
   connectBtn.textContent = connected ? "Disconnect" : "Connect";
   const en = connected;
@@ -221,6 +228,11 @@ function startProgressLoop(): void {
 function renderKeyframes(): void {
   keyframeListEl.innerHTML = "";
   const sorted = sortKeyframes(editor.sequence.keyframes);
+  if (sorted.length === 0) {
+    keyframeListEl.innerHTML =
+      '<p class="empty-state">No keyframes yet. Connect, adjust the live blend, then <strong>Add keyframe</strong>.</p>';
+    return;
+  }
   sorted.forEach((kf, index) => {
     const dom = dominantPrimitive(kf.blend.weights);
     const row = document.createElement("div");
@@ -292,7 +304,9 @@ connectBtn.addEventListener("click", async () => {
   try {
     await session.connect();
   } catch (err) {
-    appendLog(`Connect failed: ${err instanceof Error ? err.message : String(err)}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    appendLog(`Connect failed: ${msg}`);
+    showToast(`Could not connect — ${msg}`, "error");
     session = null;
     setUiConnected(false, "Disconnected");
     connectBtn.disabled = false;
@@ -312,7 +326,10 @@ connectBtn.addEventListener("click", async () => {
     updateFacePreview(frame.blend.weights, frame.blend.intensity),
   );
   session.onServerMessage((msg) => {
-    if (msg.type === "error") appendLog(`Error: ${msg.message}`);
+    if (msg.type === "error") {
+      appendLog(`Error: ${msg.message}`);
+      showToast(msg.message, "error");
+    }
     if (msg.type === "playbackProgress") applyProgressUi();
     if (msg.type === "playbackState") playbackStateEl.textContent = msg.state;
   });
@@ -340,6 +357,7 @@ stopRecordSessionBtn.addEventListener("click", () => {
   a.click();
   URL.revokeObjectURL(a.href);
   appendLog("Session recording exported");
+  showToast("Session recording downloaded", "success");
 });
 
 replaySessionInput.addEventListener("change", () => {
@@ -366,7 +384,9 @@ replaySessionInput.addEventListener("change", () => {
         onComplete: () => appendLog("Session replay finished"),
       });
     } catch (err) {
-      appendLog(`Replay failed: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`Replay failed: ${msg}`);
+      showToast(`Replay failed — ${msg}`, "error");
     }
   });
   replaySessionInput.value = "";
@@ -390,7 +410,10 @@ applyPresetBtn.addEventListener("click", () => {
   void (async () => {
     if (!session?.isConnected()) return;
     const preset = getPresetById(presetSelect.value);
-    if (!preset?.blend) return appendLog("No static blend on preset");
+    if (!preset?.blend) {
+      showToast("This preset has no static pose", "error");
+      return appendLog("No static blend on preset");
+    }
     await session.setExpression(
       createExpressionFrame(preset.blend, { durationMs: Number(durationInput.value) }),
     );
@@ -402,7 +425,10 @@ playPresetBtn.addEventListener("click", () => {
   void (async () => {
     if (!session?.isConnected()) return;
     const preset = getPresetById(presetSelect.value);
-    if (!preset?.sequence) return appendLog("No sequence on preset");
+    if (!preset?.sequence) {
+      showToast("This preset has no sequence", "error");
+      return appendLog("No sequence on preset");
+    }
     if (preset.sequence) {
       editor.sequence = { ...preset.sequence };
       editor.renderMarkers(timelineMarkers, timelineProgress, timelineMeta);
@@ -479,8 +505,19 @@ exportSeqBtn.addEventListener("click", () => {
 importSeqInput.addEventListener("change", () => {
   const file = importSeqInput.files?.[0];
   if (!file) return;
-  void file.text().then((text) => editor.importJson(text));
+  void file.text().then((text) => {
+    try {
+      editor.importJson(text);
+      renderKeyframes();
+      showToast(`Imported sequence “${editor.sequence.name}”`, "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`Import failed: ${msg}`);
+      showToast(`Import failed — ${msg}`, "error");
+    }
+  });
   importSeqInput.value = "";
 });
 
+setFacePreviewEmpty(true);
 updateFacePreview(sliderState);
