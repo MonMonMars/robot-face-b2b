@@ -26,6 +26,8 @@ The SDK is version **0.1.0** and publish-ready. Packaging checklist and semver n
 - [packages/robot-face-sdk/README.md](./packages/robot-face-sdk/README.md) (package consumer docs)
 - [CHANGELOG.md](./CHANGELOG.md)
 - Verify tarball locally: `npm run pack:sdk`
+- **API reference (TypeDoc):** `npm run docs` → [docs/api](./docs/api/index.html)
+- **CI smoke:** Playwright studio + stream (`npm run test:smoke`); headless health script (`npm run test:smoke:health`)
 
 ---
 
@@ -49,6 +51,9 @@ npm run test:integration
 | `npm run demo:web` | Control studio at http://localhost:5173 |
 | `npm run demo:cli` | In-process mock CLI |
 | `npm run demo:cli -- --stream ws://127.0.0.1:8765/stream` | CLI over live stream (auto-reconnect) |
+| `npm run docs` | Generate SDK API docs into `docs/api` |
+| `npm run test:smoke` | Playwright: studio + mock stream |
+| `npm run test:smoke:health` | HTTP health + WebSocket hello/presence (no browser) |
 
 ### Docker Compose (one-command demo stack)
 
@@ -117,6 +122,10 @@ Wire schema: `packages/robot-face-sdk/src/stream/wire-protocol.ts`.
 ### Stream client resilience
 
 `ResilientStreamClient` (SDK) and the control studio / CLI stream mode **auto-reconnect** with exponential backoff when the WebSocket drops. Connection states: `connecting`, `connected`, `reconnecting`, `disconnected`. The studio badge shows reconnect status; the CLI prints `[stream] reconnecting (backoff)…` and queues outbound frames until the socket is open again.
+
+### Stream presence (multi-client)
+
+The stream server broadcasts **`presence`** messages (`clientCount`, optional `clients[].label`) when clients connect, disconnect, or send **`identify`**. The control studio shows **N connected** and labels (e.g. `studio`). Health JSON includes `streamClients`.
 
 ### Session recording & replay
 

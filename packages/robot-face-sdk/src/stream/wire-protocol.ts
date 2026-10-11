@@ -17,6 +17,7 @@ export type WireClientMessage =
   | { type: "pausePlayback" }
   | { type: "resumePlayback" }
   | { type: "seekPlayback"; localTimeMs: number }
+  | { type: "identify"; label?: string }
   | { type: "ping" };
 
 export type WireServerMessage =
@@ -31,6 +32,11 @@ export type WireServerMessage =
   | { type: "playbackState"; state: PlaybackState }
   | { type: "playbackProgress"; progress: PlaybackProgressSnapshot }
   | { type: "pong" }
+  | {
+      type: "presence";
+      clientCount: number;
+      clients: { id: string; label?: string }[];
+    }
   | { type: "error"; message: string }
   | { type: "log"; line: string };
 
@@ -50,6 +56,11 @@ export function parseWireMessage(raw: string): WireClientMessage {
   switch (msg.type) {
     case "ping":
       return { type: "ping" };
+    case "identify":
+      return {
+        type: "identify",
+        label: typeof msg.label === "string" ? msg.label : undefined,
+      };
     case "stopPlayback":
       return { type: "stopPlayback" };
     case "pausePlayback":

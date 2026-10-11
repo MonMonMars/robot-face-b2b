@@ -20,6 +20,11 @@ describe("wire protocol", () => {
   it("rejects unknown types", () => {
     expect(() => parseWireMessage(JSON.stringify({ type: "nope" }))).toThrow();
   });
+
+  it("parses identify", () => {
+    const msg = parseWireMessage(JSON.stringify({ type: "identify", label: "studio" }));
+    expect(msg).toEqual({ type: "identify", label: "studio" });
+  });
 });
 
 describe("sequence io", () => {

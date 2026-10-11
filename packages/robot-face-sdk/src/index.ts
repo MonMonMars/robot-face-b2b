@@ -71,6 +71,12 @@ export {
   type StreamServerGuardConfig,
 } from "./stream/stream-server-guards.js";
 export {
+  StreamPresenceTracker,
+  createStreamClientId,
+  type StreamPresenceClient,
+  type StreamPresenceSnapshot,
+} from "./stream/stream-presence.js";
+export {
   SESSION_RECORDING_VERSION,
   SessionRecorder,
   SessionReplayer,

@@ -8,3 +8,5 @@ coverage/
 *.log
 .vite/
 *.tgz
+test-results/
+playwright-report/

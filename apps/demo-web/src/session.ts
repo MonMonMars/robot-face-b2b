@@ -160,6 +160,7 @@ export class StreamExpressionSession implements ExpressionSession {
   private remoteProgress: PlaybackProgressSnapshot | null = null;
   private connectionState: StreamConnectionState = "disconnected";
   private recorder: SessionRecorder | null = null;
+  private lastPresence: Extract<WireServerMessage, { type: "presence" }> | null = null;
 
   constructor(
     private readonly streamUrl: string,
@@ -191,6 +192,8 @@ export class StreamExpressionSession implements ExpressionSession {
         // First attempt may fail; auto-reconnect continues until connected.
       });
     });
+
+    this.send({ type: "identify", label: "studio" });
   }
 
   private dispatchServerMessage(msg: WireServerMessage): void {
@@ -200,6 +203,9 @@ export class StreamExpressionSession implements ExpressionSession {
     if (msg.type === "frame") {
       this.recorder?.recordFrame(msg.frame);
     }
+    if (msg.type === "presence") {
+      this.lastPresence = msg;
+    }
     for (const h of this.messageHandlers) h(msg);
   }
 
@@ -208,6 +214,7 @@ export class StreamExpressionSession implements ExpressionSession {
     this.client = null;
     this.remoteProgress = null;
     this.connectionState = "disconnected";
+    this.lastPresence = null;
   }
 
   isConnected(): boolean {
@@ -271,6 +278,7 @@ export class StreamExpressionSession implements ExpressionSession {
 
   onServerMessage(cb: (msg: WireServerMessage) => void): () => void {
     this.messageHandlers.add(cb);
+    if (this.lastPresence) cb(this.lastPresence);
     return () => this.messageHandlers.delete(cb);
   }
 

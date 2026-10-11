@@ -546,3 +546,12 @@ input[type="number"] {
   background: #142a22;
   color: #b2f2bb;
 }
+
+.shortcuts-hint kbd {
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}

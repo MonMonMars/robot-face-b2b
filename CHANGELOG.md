@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. Versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- TypeDoc API reference at `docs/api` (`npm run docs`).
+- Playwright studio smoke test and `scripts/smoke-health.mjs`.
+- Stream **`presence`** / client **`identify`** wire messages; studio shows connected client count.
+- Studio keyboard shortcuts (pause/resume, seek, play timeline).
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

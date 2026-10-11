@@ -64,6 +64,7 @@ const stopRecordSessionBtn = document.querySelector<HTMLButtonElement>("#stop-re
 const replaySessionInput = document.querySelector<HTMLInputElement>("#replay-session")!;
 const recordStatusEl = document.querySelector<HTMLElement>("#record-status")!;
 const faceEmptyEl = document.querySelector<HTMLElement>("#face-empty")!;
+const presenceCountEl = document.querySelector<HTMLElement>("#presence-count")!;
 
 let session: ExpressionSession | null = null;
 const sessionRecorder = new SessionRecorder();
@@ -106,6 +107,22 @@ for (const p of EXPRESSION_PRIMITIVES) {
     row.querySelector("output")!.textContent = input.value;
     updateFacePreview(sliderState);
   });
+}
+
+function updatePresenceUi(count: number, labels: string[]): void {
+  if (count <= 0) {
+    presenceCountEl.textContent = "Stream clients: —";
+    return;
+  }
+  const labelPart =
+    labels.length > 0 ? ` (${labels.slice(0, 3).join(", ")}${labels.length > 3 ? "…" : ""})` : "";
+  presenceCountEl.textContent = `${count} connected${labelPart}`;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 }
 
 function appendLog(line: string): void {
@@ -286,6 +303,7 @@ connectBtn.addEventListener("click", async () => {
     await session.disconnect();
     session = null;
     setUiConnected(false, "Disconnected");
+    updatePresenceUi(0, []);
     appendLog("Disconnected");
     return;
   }
@@ -329,6 +347,12 @@ connectBtn.addEventListener("click", async () => {
     if (msg.type === "error") {
       appendLog(`Error: ${msg.message}`);
       showToast(msg.message, "error");
+    }
+    if (msg.type === "presence") {
+      const labels = msg.clients
+        .map((c) => c.label)
+        .filter((l): l is string => Boolean(l));
+      updatePresenceUi(msg.clientCount, labels);
     }
     if (msg.type === "playbackProgress") applyProgressUi();
     if (msg.type === "playbackState") playbackStateEl.textContent = msg.state;
@@ -521,3 +545,49 @@ importSeqInput.addEventListener("change", () => {
 
 setFacePreviewEmpty(true);
 updateFacePreview(sliderState);
+
+document.addEventListener("keydown", (ev) => {
+  if (isEditableTarget(ev.target)) return;
+
+  if (ev.key === "?") {
+    showToast(
+      "Space: pause/resume · ←/→: seek 100ms · P: play timeline · Connect first for stream actions",
+      "info",
+    );
+    return;
+  }
+
+  if (!session?.isConnected()) return;
+
+  if (ev.key === " ") {
+    ev.preventDefault();
+    const state = session.getRemoteProgress()?.state;
+    if (state === "paused") {
+      session.resumePlayback();
+      appendLog("Playback resumed (shortcut)");
+    } else {
+      session.pausePlayback();
+      appendLog("Playback paused (shortcut)");
+    }
+    return;
+  }
+
+  if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+    ev.preventDefault();
+    const snap = session.getRemoteProgress();
+    const t = snap?.localTimeMs ?? Number(scrubInput.value);
+    const delta = ev.key === "ArrowLeft" ? -100 : 100;
+    const next = Math.max(0, t + delta);
+    scrubInput.value = String(next);
+    editor.scrub(next);
+    session.seekPlayback(next);
+    return;
+  }
+
+  if (ev.key === "p" || ev.key === "P") {
+    ev.preventDefault();
+    void session.playSequence(editor.sequence, editor.sequence.loop || loopCheckbox.checked);
+    startProgressLoop();
+    appendLog("Playing custom timeline (shortcut)");
+  }
+});

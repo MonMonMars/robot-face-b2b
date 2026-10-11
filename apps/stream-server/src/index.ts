@@ -4,10 +4,12 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   configToConnectionOptions,
   createRobotAdapter,
+  createStreamClientId,
   ExpressionStreamHub,
   parseAdapterConfig,
   readStreamServerGuardConfig,
   StreamConnectionGuard,
+  StreamPresenceTracker,
   validateStreamToken,
   type RobotAdapterId,
 } from "@robot-face/sdk";
@@ -87,6 +89,7 @@ function adapterConnectOptions(id: RobotAdapterId) {
 async function main(): Promise<void> {
   const guardConfig = readStreamServerGuardConfig();
   const connectionGuard = new StreamConnectionGuard(guardConfig);
+  const presenceTracker = new StreamPresenceTracker();
 
   const adapter = createRobotAdapter(ADAPTER_ID);
   const hub = new ExpressionStreamHub(adapter, {
@@ -109,11 +112,21 @@ async function main(): Promise<void> {
         maxClients: guardConfig.maxClients,
         minMessageIntervalMs: guardConfig.minMessageIntervalMs,
         activeClients: connectionGuard.getActiveClients(),
+        streamClients: presenceTracker.snapshot().clientCount,
       }),
     );
   });
 
   const wss = new WebSocketServer({ noServer: true });
+
+  const broadcastPresence = (): void => {
+    const raw = hub.serialize(presenceTracker.toPresenceMessage());
+    for (const client of wss.clients) {
+      if (client.readyState === client.OPEN) {
+        client.send(raw);
+      }
+    }
+  };
 
   httpServer.on("upgrade", (req, socket, head) => {
     if (!req.url?.startsWith("/stream")) {
@@ -138,6 +151,8 @@ async function main(): Promise<void> {
   wss.on("connection", (socket: WebSocket) => {
     connectionGuard.registerClient();
     let lastInboundAt = 0;
+    const clientId = createStreamClientId();
+    presenceTracker.register(clientId);
 
     const unsub = hub.subscribe((message) => {
       if (socket.readyState === socket.OPEN) {
@@ -160,6 +175,7 @@ async function main(): Promise<void> {
         hub.serialize({ type: "playbackProgress", progress: snap }),
       );
     }
+    broadcastPresence();
 
     socket.on("message", (data) => {
       if (!connectionGuard.checkMessageRate(lastInboundAt)) {
@@ -172,12 +188,30 @@ async function main(): Promise<void> {
         return;
       }
       lastInboundAt = Date.now();
-      void hub.handleRawMessage(data.toString());
+
+      const text = data.toString();
+      try {
+        const peek = JSON.parse(text) as { type?: string; label?: string };
+        if (peek.type === "identify") {
+          presenceTracker.setLabel(
+            clientId,
+            typeof peek.label === "string" ? peek.label : undefined,
+          );
+          broadcastPresence();
+          return;
+        }
+      } catch {
+        // hub handles invalid JSON
+      }
+
+      void hub.handleRawMessage(text);
     });
 
     socket.on("close", () => {
       unsub();
       connectionGuard.unregisterClient();
+      presenceTracker.unregister(clientId);
+      broadcastPresence();
     });
   });
 

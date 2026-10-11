@@ -106,6 +106,8 @@ export class ExpressionStreamHub {
         });
         this.emitPlaybackSync();
         break;
+      case "identify":
+        break;
       default: {
         const _exhaustive: never = msg;
         throw new Error(`Unhandled message: ${String(_exhaustive)}`);
