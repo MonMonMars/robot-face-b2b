@@ -194,8 +194,19 @@ input[type="number"] {
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 2rem 1rem;
+  padding: 1rem;
   text-align: center;
+}
+
+.face-canvas {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  aspect-ratio: 11 / 12;
+  display: block;
+  margin: 0 auto;
+  border-radius: var(--radius);
+  background: #0a0e14;
 }
 
 .face {

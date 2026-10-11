@@ -11,6 +11,8 @@
   "scripts": {
     "build": "npm run build -w @robot-face/sdk && npm run build -w @robot-face/stream-server && npm run build -w @robot-face/demo-cli && npm run build -w @robot-face/demo-web",
     "stream:server": "npm run start -w @robot-face/stream-server",
+    "stack:up": "docker compose up --build",
+    "stack:down": "docker compose down",
     "test": "npm run test -w @robot-face/sdk",
     "test:integration": "npm run test:integration -w @robot-face/sdk",
     "lint": "eslint \"packages/**/*.ts\" \"apps/**/*.ts\"",

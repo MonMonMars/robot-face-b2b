@@ -19,8 +19,24 @@ npm run test:integration
 | `npm run demo:web` | Control studio at http://localhost:5173 |
 | `npm run demo:cli` | In-process mock CLI |
 | `npm run demo:cli -- --stream ws://127.0.0.1:8765/stream` | CLI over live stream |
+| `npm run stack:up` | **One command:** Docker Compose — mock stream + studio |
 
-### Stream server + studio (recommended)
+### Docker Compose (one-command demo stack)
+
+Requires [Docker](https://docs.docker.com/get-docker/) with Compose v2:
+
+```bash
+npm run stack:up
+# Studio → http://localhost:5173
+# Stream  → ws://localhost:8765/stream  (mock adapter)
+# Health  → curl http://localhost:8765/
+```
+
+Stop with `npm run stack:down`. In the studio, use **Stream server** mode (default URL works from your host browser).
+
+The control studio includes a **canvas face preview** driven by live blend weights and stream frames — no robot hardware needed for demos.
+
+### Stream server + studio (without Docker)
 
 Use two terminals so the web UI and CLI share one adapter over WebSocket:
 
@@ -84,6 +100,21 @@ npm run stream:server
 
 Set `UNITREE_BRIDGE_DRY_RUN=0` only when your bridge endpoint is live. Payload shape (`robot-face.unitree-expression.v1`): see `packages/robot-face-sdk/src/adapters/unitree-bridge-client.ts` and `UnitreeRobotAdapter.mapFrameToUnitreePayload`.
 
+### Humanoid OEM bridge (feature flag)
+
+Same pattern as Unitree — **configurable URL**, **dry-run default**, documented JSON (`robot-face.humanoid-expression.v1`):
+
+```bash
+ADAPTER=humanoid-generic \
+HUMANOID_BRIDGE=1 \
+HUMANOID_BRIDGE_URL=http://127.0.0.1:9841/v1/expression/frame \
+HUMANOID_BRIDGE_MODE=http \
+HUMANOID_BRIDGE_DRY_RUN=1 \
+npm run stream:server
+```
+
+See `packages/robot-face-sdk/src/adapters/humanoid-bridge-client.ts`.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -92,7 +123,8 @@ Set `UNITREE_BRIDGE_DRY_RUN=0` only when your bridge endpoint is live. Payload s
 | `packages/robot-face-sdk/config/*.example.json` | Sample Unitree / humanoid bridge configs |
 | `apps/demo-cli` | Terminal demo |
 | `apps/stream-server` | WebSocket server bridging clients → `ExpressionStreamHub` → adapter |
-| `apps/demo-web` | Control studio (stream or local, timeline editor, import/export JSON) |
+| `apps/demo-web` | Control studio (canvas face preview, timeline editor, stream/local) |
+| `docker-compose.yml` | Local demo stack (stream-server + nginx studio) |
 
 ## Architecture
 

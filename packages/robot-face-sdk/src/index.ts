@@ -67,8 +67,13 @@ export {
   sendUnitreeBridgeFrame,
   setUnitreeBridgeTransportForTests,
   type UnitreeBridgeConfig,
-  type UnitreeBridgeTransport,
 } from "./adapters/unitree-bridge-client.js";
+export {
+  buildHumanoidBridgePayload,
+  sendHumanoidBridgeFrame,
+  setHumanoidBridgeTransportForTests,
+  type HumanoidBridgeConfig,
+} from "./adapters/humanoid-bridge-client.js";
 export type {
   RobotAdapter,
   RobotAdapterCapabilities,

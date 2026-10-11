@@ -20,9 +20,11 @@ import {
   type ConnectionMode,
   type ExpressionSession,
 } from "./session.js";
+import { FacePreviewCanvas } from "./face-preview.js";
 import { TimelineEditor } from "./timeline-editor.js";
 
-const faceEl = document.querySelector<HTMLElement>("#face")!;
+const faceCanvas = document.querySelector<HTMLCanvasElement>("#face-canvas")!;
+const facePreview = new FacePreviewCanvas(faceCanvas, { showBars: true });
 const dominantLabel = document.querySelector<HTMLElement>("#dominant-label")!;
 const logEl = document.querySelector<HTMLElement>("#log")!;
 const connModeSelect = document.querySelector<HTMLSelectElement>("#conn-mode")!;
@@ -111,11 +113,10 @@ function dominantPrimitive(weights: BlendWeights): ExpressionPrimitive {
   return best;
 }
 
-function updateFacePreview(weights: BlendWeights): void {
-  faceEl.className = "face";
+function updateFacePreview(weights: BlendWeights, intensity = 1): void {
   const dom = dominantPrimitive(weights);
-  faceEl.classList.add(`face--${dom}`);
   dominantLabel.textContent = dom;
+  facePreview.render(weights, intensity);
   syncSliders(weights);
 }
 
@@ -246,7 +247,9 @@ connectBtn.addEventListener("click", async () => {
   setUiConnected(true, label);
   appendLog(`Connected (${session.mode})`);
 
-  session.onFrame((frame) => updateFacePreview(frame.blend.weights));
+  session.onFrame((frame) =>
+    updateFacePreview(frame.blend.weights, frame.blend.intensity),
+  );
   session.onServerMessage((msg) => {
     if (msg.type === "error") appendLog(`Error: ${msg.message}`);
     if (msg.type === "playbackProgress") applyProgressUi();

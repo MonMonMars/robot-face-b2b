@@ -30,6 +30,22 @@ function unitreeCredentialsExtras(): Record<string, string> {
   return extras;
 }
 
+function humanoidCredentialsExtras(): Record<string, string> {
+  const extras: Record<string, string> = {};
+  if (process.env.HUMANOID_BRIDGE === "1") {
+    extras.humanoidBridge = "1";
+    extras.humanoidBridgeUrl =
+      process.env.HUMANOID_BRIDGE_URL ??
+      "http://127.0.0.1:9841/v1/expression/frame";
+    extras.humanoidBridgeMode =
+      process.env.HUMANOID_BRIDGE_MODE === "ws" ? "ws" : "http";
+    if (process.env.HUMANOID_BRIDGE_TOKEN) {
+      extras.humanoidBridgeToken = process.env.HUMANOID_BRIDGE_TOKEN;
+    }
+  }
+  return extras;
+}
+
 function adapterConnectOptions(id: RobotAdapterId) {
   if (id === "mock") return undefined;
 
@@ -49,14 +65,21 @@ function adapterConnectOptions(id: RobotAdapterId) {
     return opts;
   }
 
-  return configToConnectionOptions(
-    parseAdapterConfig({
-      adapterId: "humanoid-generic",
-      address: process.env.BRIDGE_URL ?? "http://127.0.0.1:9840",
-      dryRun: true,
-      platform: "optimus-class",
-    }),
-  );
+  const humanoidDryRun =
+    process.env.HUMANOID_BRIDGE !== "1" ||
+    process.env.HUMANOID_BRIDGE_DRY_RUN !== "0";
+  const cfg = parseAdapterConfig({
+    adapterId: "humanoid-generic",
+    address: process.env.BRIDGE_URL ?? "http://127.0.0.1:9840",
+    dryRun: humanoidDryRun,
+    platform: "optimus-class",
+  });
+  const opts = configToConnectionOptions(cfg);
+  opts.credentials = {
+    ...(opts.credentials ?? {}),
+    ...humanoidCredentialsExtras(),
+  };
+  return opts;
 }
 
 async function main(): Promise<void> {
@@ -77,6 +100,7 @@ async function main(): Promise<void> {
         wsPath: "/stream",
         authRequired: Boolean(STREAM_TOKEN),
         unitreeBridge: process.env.UNITREE_BRIDGE === "1",
+        humanoidBridge: process.env.HUMANOID_BRIDGE === "1",
       }),
     );
   });
