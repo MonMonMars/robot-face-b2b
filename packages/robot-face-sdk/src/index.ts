@@ -36,6 +36,7 @@ export {
 export {
   ExpressionPlayback,
   type PlaybackOptions,
+  type PlaybackProgressSnapshot,
   type PlaybackState,
   type PlaybackTickContext,
 } from "./expressions/playback.js";
@@ -57,6 +58,17 @@ export {
   type ExpressionStreamClientOptions,
   type StreamClientListener,
 } from "./stream/ws-client.js";
+export {
+  validateStreamToken,
+  appendTokenQuery,
+} from "./stream/stream-auth.js";
+export {
+  buildUnitreeBridgePayload,
+  sendUnitreeBridgeFrame,
+  setUnitreeBridgeTransportForTests,
+  type UnitreeBridgeConfig,
+  type UnitreeBridgeTransport,
+} from "./adapters/unitree-bridge-client.js";
 export type {
   RobotAdapter,
   RobotAdapterCapabilities,

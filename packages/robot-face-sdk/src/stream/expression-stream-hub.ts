@@ -10,6 +10,11 @@ import {
 
 export type StreamHubListener = (message: WireServerMessage) => void;
 
+export interface ExpressionStreamHubOptions {
+  authRequired?: boolean;
+  progressBroadcastHz?: number;
+}
+
 /**
  * Adapter-facing hub: applies client wire messages to the robot adapter and
  * broadcasts adapter stream events to subscribers.
@@ -18,8 +23,12 @@ export class ExpressionStreamHub {
   private readonly playback = new ExpressionPlayback();
   private streamUnsub: Unsubscribe | undefined;
   private readonly listeners = new Set<StreamHubListener>();
+  private progressInterval: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly adapter: RobotAdapter) {}
+  constructor(
+    private readonly adapter: RobotAdapter,
+    private readonly hubOptions: ExpressionStreamHubOptions = {},
+  ) {}
 
   async start(options?: Parameters<RobotAdapter["connect"]>[0]): Promise<void> {
     if (!this.adapter.isConnected()) {
@@ -29,15 +38,18 @@ export class ExpressionStreamHub {
     this.streamUnsub = this.adapter.expressionStream.subscribe((frame) => {
       this.emit({ type: "frame", frame });
     });
-    this.emit({
-      type: "hello",
-      adapterId: this.adapter.id,
-      platformLabel: this.adapter.capabilities.platformLabel,
-      connected: this.adapter.isConnected(),
-    });
+
+    const hz = this.hubOptions.progressBroadcastHz ?? 10;
+    this.progressInterval = setInterval(() => {
+      this.broadcastProgressIfActive();
+    }, 1000 / hz);
+
+    this.emitHello();
   }
 
   async stop(): Promise<void> {
+    if (this.progressInterval) clearInterval(this.progressInterval);
+    this.progressInterval = undefined;
     this.playback.stop();
     this.streamUnsub?.();
     this.streamUnsub = undefined;
@@ -68,21 +80,31 @@ export class ExpressionStreamHub {
         break;
       case "stopPlayback":
         this.playback.stop();
-        this.emit({ type: "playbackState", state: this.playback.getState() });
+        this.emitPlaybackSync();
+        break;
+      case "pausePlayback":
+        this.playback.pause();
+        this.emitPlaybackSync();
+        break;
+      case "resumePlayback":
+        this.playback.resume();
+        this.emitPlaybackSync();
+        break;
+      case "seekPlayback":
+        this.playback.seek(msg.localTimeMs);
+        this.emitPlaybackSync();
         break;
       case "setExpression":
         await this.adapter.setExpression(msg.frame);
         break;
       case "playSequence":
         this.playback.stop();
-        this.emit({ type: "playbackState", state: "playing" });
         await this.playback.playSequence(msg.sequence, this.adapter, {
           loop: msg.loop ?? msg.sequence.loop,
-          onFrame: () => {
-            this.emit({ type: "playbackState", state: this.playback.getState() });
-          },
+          onProgress: () => this.emitPlaybackSync(),
+          onFrame: () => this.emitPlaybackSync(),
         });
-        this.emit({ type: "playbackState", state: this.playback.getState() });
+        this.emitPlaybackSync();
         break;
       default: {
         const _exhaustive: never = msg;
@@ -107,5 +129,30 @@ export class ExpressionStreamHub {
 
   getPlayback(): ExpressionPlayback {
     return this.playback;
+  }
+
+  emitHello(): void {
+    this.emit({
+      type: "hello",
+      adapterId: this.adapter.id,
+      platformLabel: this.adapter.capabilities.platformLabel,
+      connected: this.adapter.isConnected(),
+      authRequired: this.hubOptions.authRequired,
+    });
+  }
+
+  private emitPlaybackSync(): void {
+    const snap = this.playback.getSnapshot();
+    if (!snap) return;
+    this.emit({ type: "playbackState", state: snap.state });
+    this.emit({ type: "playbackProgress", progress: snap });
+  }
+
+  private broadcastProgressIfActive(): void {
+    const snap = this.playback.getSnapshot();
+    if (!snap) return;
+    if (snap.state === "playing" || snap.state === "paused") {
+      this.emit({ type: "playbackProgress", progress: snap });
+    }
   }
 }

@@ -17,10 +17,12 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
     "@types/ws": "^8.5.13",
-    "vitest": "^2.1.8",
-    "ws": "^8.18.0"
+    "vitest": "^2.1.8"
   },
   "files": [
     "dist"

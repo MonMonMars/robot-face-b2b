@@ -2,7 +2,10 @@ import { createExpressionFrame, type ExpressionFrame } from "../expressions/fram
 import type { ExpressionSequence } from "../expressions/keyframes.js";
 import { normalizeBlend, type ExpressionBlend } from "../expressions/blend.js";
 import { EXPRESSION_PRIMITIVES } from "../expressions/primitives.js";
-import type { PlaybackState } from "../expressions/playback.js";
+import type {
+  PlaybackProgressSnapshot,
+  PlaybackState,
+} from "../expressions/playback.js";
 import type { EasingName } from "../expressions/transitions.js";
 
 export type WireExpressionFrame = ExpressionFrame;
@@ -11,6 +14,9 @@ export type WireClientMessage =
   | { type: "setExpression"; frame: WireExpressionFrame }
   | { type: "playSequence"; sequence: ExpressionSequence; loop?: boolean }
   | { type: "stopPlayback" }
+  | { type: "pausePlayback" }
+  | { type: "resumePlayback" }
+  | { type: "seekPlayback"; localTimeMs: number }
   | { type: "ping" };
 
 export type WireServerMessage =
@@ -19,9 +25,11 @@ export type WireServerMessage =
       adapterId: string;
       platformLabel: string;
       connected: boolean;
+      authRequired?: boolean;
     }
   | { type: "frame"; frame: WireExpressionFrame }
   | { type: "playbackState"; state: PlaybackState }
+  | { type: "playbackProgress"; progress: PlaybackProgressSnapshot }
   | { type: "pong" }
   | { type: "error"; message: string }
   | { type: "log"; line: string };
@@ -44,6 +52,15 @@ export function parseWireMessage(raw: string): WireClientMessage {
       return { type: "ping" };
     case "stopPlayback":
       return { type: "stopPlayback" };
+    case "pausePlayback":
+      return { type: "pausePlayback" };
+    case "resumePlayback":
+      return { type: "resumePlayback" };
+    case "seekPlayback":
+      if (typeof msg.localTimeMs !== "number") {
+        throw new Error("seekPlayback.localTimeMs must be a number");
+      }
+      return { type: "seekPlayback", localTimeMs: msg.localTimeMs };
     case "setExpression":
       return { type: "setExpression", frame: parseFrame(msg.frame) };
     case "playSequence":

@@ -1,4 +1,5 @@
 import {
+  appendTokenQuery,
   configToConnectionOptions,
   createExpressionFrame,
   createRobotAdapter,
@@ -7,6 +8,7 @@ import {
   parseAdapterConfig,
   type ExpressionFrame,
   type ExpressionSequence,
+  type PlaybackProgressSnapshot,
   type RobotAdapter,
   type RobotAdapterId,
   type WireServerMessage,
@@ -22,8 +24,12 @@ export interface ExpressionSession {
   platformLabel(): string;
   setExpression(frame: ExpressionFrame): Promise<void>;
   playSequence(sequence: ExpressionSequence, loop?: boolean): Promise<void>;
+  pausePlayback(): void;
+  resumePlayback(): void;
+  seekPlayback(localTimeMs: number): void;
   stopPlayback(): void;
   getPlayback(): ExpressionPlayback | null;
+  getRemoteProgress(): PlaybackProgressSnapshot | null;
   onServerMessage(cb: (msg: WireServerMessage) => void): () => void;
   onFrame(cb: (frame: ExpressionFrame) => void): () => void;
 }
@@ -32,6 +38,7 @@ export class LocalExpressionSession implements ExpressionSession {
   readonly mode = "local" as const;
   private robot: RobotAdapter | null = null;
   private readonly playback = new ExpressionPlayback();
+  private remoteProgress: PlaybackProgressSnapshot | null = null;
 
   constructor(
     private readonly adapterId: RobotAdapterId,
@@ -47,6 +54,7 @@ export class LocalExpressionSession implements ExpressionSession {
     this.playback.stop();
     await this.robot?.disconnect();
     this.robot = null;
+    this.remoteProgress = null;
   }
 
   isConnected(): boolean {
@@ -65,15 +73,39 @@ export class LocalExpressionSession implements ExpressionSession {
   async playSequence(sequence: ExpressionSequence, loop?: boolean): Promise<void> {
     if (!this.robot) throw new Error("Not connected");
     this.playback.stop();
-    await this.playback.playSequence(sequence, this.robot, { loop });
+    await this.playback.playSequence(sequence, this.robot, {
+      loop,
+      onProgress: (p) => {
+        this.remoteProgress = p;
+      },
+    });
+  }
+
+  pausePlayback(): void {
+    this.playback.pause();
+    this.remoteProgress = this.playback.getSnapshot();
+  }
+
+  resumePlayback(): void {
+    this.playback.resume();
+  }
+
+  seekPlayback(localTimeMs: number): void {
+    this.playback.seek(localTimeMs);
+    this.remoteProgress = this.playback.getSnapshot();
   }
 
   stopPlayback(): void {
     this.playback.stop();
+    this.remoteProgress = this.playback.getSnapshot();
   }
 
   getPlayback(): ExpressionPlayback {
     return this.playback;
+  }
+
+  getRemoteProgress(): PlaybackProgressSnapshot | null {
+    return this.remoteProgress ?? this.playback.getSnapshot();
   }
 
   onServerMessage(): () => void {
@@ -91,13 +123,21 @@ export class StreamExpressionSession implements ExpressionSession {
   private client: ExpressionStreamClient | null = null;
   private readonly messageHandlers = new Set<(msg: WireServerMessage) => void>();
   private platform = "Stream server";
+  private remoteProgress: PlaybackProgressSnapshot | null = null;
 
-  constructor(private readonly streamUrl: string) {}
+  constructor(
+    private readonly streamUrl: string,
+    private readonly streamToken?: string,
+  ) {}
 
   async connect(): Promise<void> {
+    const url = appendTokenQuery(this.streamUrl, this.streamToken);
     this.client = new ExpressionStreamClient({
-      url: this.streamUrl,
+      url,
       onMessage: (msg) => {
+        if (msg.type === "playbackProgress") {
+          this.remoteProgress = msg.progress;
+        }
         for (const h of this.messageHandlers) h(msg);
       },
     });
@@ -107,6 +147,7 @@ export class StreamExpressionSession implements ExpressionSession {
   async disconnect(): Promise<void> {
     this.client?.close();
     this.client = null;
+    this.remoteProgress = null;
   }
 
   isConnected(): boolean {
@@ -125,12 +166,28 @@ export class StreamExpressionSession implements ExpressionSession {
     this.client?.send({ type: "playSequence", sequence, loop });
   }
 
+  pausePlayback(): void {
+    this.client?.send({ type: "pausePlayback" });
+  }
+
+  resumePlayback(): void {
+    this.client?.send({ type: "resumePlayback" });
+  }
+
+  seekPlayback(localTimeMs: number): void {
+    this.client?.send({ type: "seekPlayback", localTimeMs });
+  }
+
   stopPlayback(): void {
     this.client?.send({ type: "stopPlayback" });
   }
 
   getPlayback(): ExpressionPlayback | null {
     return null;
+  }
+
+  getRemoteProgress(): PlaybackProgressSnapshot | null {
+    return this.remoteProgress;
   }
 
   onServerMessage(cb: (msg: WireServerMessage) => void): () => void {

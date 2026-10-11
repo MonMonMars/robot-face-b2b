@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createRobotAdapter } from "../adapters/registry.js";
 import { createSinglePrimitiveBlend } from "./blend.js";
 import type { ExpressionSequence } from "./keyframes.js";
 import { ExpressionPlayback } from "./playback.js";
@@ -26,6 +27,25 @@ describe("ExpressionPlayback", () => {
     const mid = playback.sampleAt(sequence, 50);
     expect(mid.weights.happiness).toBeGreaterThan(0.3);
     expect(mid.weights.happiness).toBeLessThan(0.7);
+  });
+
+  it("seek updates snapshot local time while paused", async () => {
+    const robot = createRobotAdapter("mock");
+    await robot.connect();
+    const playback = new ExpressionPlayback();
+    const sequence: ExpressionSequence = {
+      id: "t",
+      name: "t",
+      keyframes: [
+        { atMs: 0, blend: createSinglePrimitiveBlend("neutral", 1) },
+        { atMs: 400, blend: createSinglePrimitiveBlend("happiness", 1) },
+      ],
+    };
+    await playback.playSequence(sequence, robot, {});
+    playback.pause();
+    playback.seek(120);
+    expect(playback.getSnapshot()?.localTimeMs).toBeGreaterThanOrEqual(100);
+    await robot.disconnect();
   });
 
   it("ease helpers clamp and reach endpoints", () => {

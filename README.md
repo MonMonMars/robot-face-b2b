@@ -41,7 +41,48 @@ npm run demo:cli -- --stream ws://127.0.0.1:8765/stream
 
 HTTP health: `curl http://127.0.0.1:8765/` → JSON status. WebSocket path: `/stream`.
 
-Wire messages (`setExpression`, `playSequence`, `stopPlayback`) are JSON; see `packages/robot-face-sdk/src/stream/wire-protocol.ts`.
+### Stream auth (optional)
+
+By default the stream is **open** (local mock dev). To require a shared secret:
+
+```bash
+STREAM_TOKEN=your-secret npm run stream:server
+```
+
+Clients must pass the token via:
+
+- Query: `ws://127.0.0.1:8765/stream?token=your-secret`
+- Header: `Authorization: Bearer your-secret` (CLI `--token your-secret`; studio **Stream token** field)
+
+### Remote playback sync
+
+Server-side `ExpressionPlayback` broadcasts **`playbackProgress`** (state, `localTimeMs`, `durationMs`, loop, sequence id) ~10 Hz while playing/paused. Clients can send:
+
+| Message | Action |
+|---------|--------|
+| `playSequence` | Start server playback |
+| `pausePlayback` / `resumePlayback` | Pause / resume |
+| `seekPlayback` | `{ localTimeMs }` scrub |
+| `stopPlayback` | Stop |
+
+Studio and CLI reflect progress; CLI stream mode accepts `pause`, `resume`, `seek <ms>`, `stop`.
+
+Wire schema: `packages/robot-face-sdk/src/stream/wire-protocol.ts`.
+
+### Unitree OEM bridge (feature flag)
+
+**Default:** dry-run stub (no network). Enable a **configurable HTTP/WebSocket bridge** (your edge translator — not a proprietary Unitree protocol):
+
+```bash
+ADAPTER=unitree \
+UNITREE_BRIDGE=1 \
+UNITREE_BRIDGE_URL=http://127.0.0.1:9870/expression/frame \
+UNITREE_BRIDGE_MODE=http \
+UNITREE_BRIDGE_DRY_RUN=1 \
+npm run stream:server
+```
+
+Set `UNITREE_BRIDGE_DRY_RUN=0` only when your bridge endpoint is live. Payload shape (`robot-face.unitree-expression.v1`): see `packages/robot-face-sdk/src/adapters/unitree-bridge-client.ts` and `UnitreeRobotAdapter.mapFrameToUnitreePayload`.
 
 ## Repository layout
 

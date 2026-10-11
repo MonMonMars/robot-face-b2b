@@ -27,6 +27,10 @@
             <span>Stream URL</span>
             <input id="stream-url" type="text" value="ws://127.0.0.1:8765/stream" />
           </label>
+          <label class="field" id="stream-token-wrap">
+            <span>Stream token (optional)</span>
+            <input id="stream-token" type="password" placeholder="STREAM_TOKEN if server auth on" autocomplete="off" />
+          </label>
           <label class="field" id="adapter-wrap">
             <span>Adapter (local / server env)</span>
             <select id="adapter-id">
@@ -51,6 +55,10 @@
             <input id="loop-playback" type="checkbox" />
             <span>Loop sequence</span>
           </label>
+          <div class="row">
+            <button id="pause-playback" type="button" class="btn" disabled>Pause</button>
+            <button id="resume-playback" type="button" class="btn" disabled>Resume</button>
+          </div>
           <button id="stop-playback" type="button" class="btn btn--ghost" disabled>Stop playback</button>
         </section>
       </aside>

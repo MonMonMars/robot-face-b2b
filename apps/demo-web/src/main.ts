@@ -27,6 +27,9 @@ const dominantLabel = document.querySelector<HTMLElement>("#dominant-label")!;
 const logEl = document.querySelector<HTMLElement>("#log")!;
 const connModeSelect = document.querySelector<HTMLSelectElement>("#conn-mode")!;
 const streamUrlInput = document.querySelector<HTMLInputElement>("#stream-url")!;
+const streamTokenInput = document.querySelector<HTMLInputElement>("#stream-token")!;
+const pausePlaybackBtn = document.querySelector<HTMLButtonElement>("#pause-playback")!;
+const resumePlaybackBtn = document.querySelector<HTMLButtonElement>("#resume-playback")!;
 const adapterSelect = document.querySelector<HTMLSelectElement>("#adapter-id")!;
 const connBadge = document.querySelector<HTMLElement>("#conn-badge")!;
 const connectBtn = document.querySelector<HTMLButtonElement>("#connect")!;
@@ -137,29 +140,42 @@ function setUiConnected(connected: boolean, label: string): void {
   playPresetBtn.disabled = !en;
   applyBlendBtn.disabled = !en;
   stopPlaybackBtn.disabled = !en;
+  pausePlaybackBtn.disabled = !en;
+  resumePlaybackBtn.disabled = !en;
   addKeyframeBtn.disabled = !en;
   playTimelineBtn.disabled = !en;
 }
 
 function createSession(mode: ConnectionMode): ExpressionSession {
   if (mode === "stream") {
-    return new StreamExpressionSession(streamUrlInput.value.trim());
+    const token = streamTokenInput.value.trim();
+    return new StreamExpressionSession(
+      streamUrlInput.value.trim(),
+      token || undefined,
+    );
   }
   const adapterId = adapterSelect.value as RobotAdapterId;
   return new LocalExpressionSession(adapterId, adapterConnectOptions(adapterId));
 }
 
+function applyProgressUi(): void {
+  const snap = session?.getRemoteProgress();
+  if (!snap) return;
+  playbackStateEl.textContent = snap.state;
+  if (snap.durationMs > 0) {
+    const pct = (snap.localTimeMs / snap.durationMs) * 100;
+    timelineProgress.style.width = `${Math.min(100, pct)}%`;
+    scrubInput.max = String(snap.durationMs);
+    if (document.activeElement !== scrubInput) {
+      scrubInput.value = String(Math.round(snap.localTimeMs));
+    }
+  }
+}
+
 function startProgressLoop(): void {
   cancelAnimationFrame(timelineRaf);
   const tick = (): void => {
-    const pb = session?.getPlayback();
-    playbackStateEl.textContent = pb?.getState() ?? "stream";
-    const prog = pb?.getProgress();
-    if (prog) {
-      const pct = (prog.localTimeMs / Math.max(prog.durationMs, 1)) * 100;
-      timelineProgress.style.width = `${Math.min(100, pct)}%`;
-      scrubInput.value = String(Math.round(prog.localTimeMs));
-    }
+    applyProgressUi();
     timelineRaf = requestAnimationFrame(tick);
   };
   tick();
@@ -233,15 +249,17 @@ connectBtn.addEventListener("click", async () => {
   session.onFrame((frame) => updateFacePreview(frame.blend.weights));
   session.onServerMessage((msg) => {
     if (msg.type === "error") appendLog(`Error: ${msg.message}`);
+    if (msg.type === "playbackProgress") applyProgressUi();
     if (msg.type === "playbackState") playbackStateEl.textContent = msg.state;
   });
 
-  if (session.getPlayback()) startProgressLoop();
+  startProgressLoop();
 });
 
 connModeSelect.addEventListener("change", () => {
   const stream = connModeSelect.value === "stream";
   streamUrlInput.parentElement!.style.display = stream ? "grid" : "none";
+  streamTokenInput.parentElement!.style.display = stream ? "grid" : "none";
   adapterSelect.parentElement!.style.display = stream ? "none" : "grid";
 });
 
@@ -288,6 +306,16 @@ stopPlaybackBtn.addEventListener("click", () => {
   appendLog("Playback stopped");
 });
 
+pausePlaybackBtn.addEventListener("click", () => {
+  session?.pausePlayback();
+  appendLog("Playback paused");
+});
+
+resumePlaybackBtn.addEventListener("click", () => {
+  session?.resumePlayback();
+  appendLog("Playback resumed");
+});
+
 applyBlendBtn.addEventListener("click", () => {
   void (async () => {
     if (!session?.isConnected()) return;
@@ -316,9 +344,10 @@ playTimelineBtn.addEventListener("click", () => {
 });
 
 scrubInput.addEventListener("input", () => {
-  editor.scrub(Number(scrubInput.value));
-  const pct =
-    (Number(scrubInput.value) / Math.max(Number(scrubInput.max), 1)) * 100;
+  const t = Number(scrubInput.value);
+  editor.scrub(t);
+  session?.seekPlayback(t);
+  const pct = (t / Math.max(Number(scrubInput.max), 1)) * 100;
   timelineProgress.style.width = `${pct}%`;
 });
 
